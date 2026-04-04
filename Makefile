@@ -1,4 +1,4 @@
-SOURCES := $(shell find src -name "*.java")
+SOURCES := $(shell find src/main/java examples -name "*.java" 2>/dev/null)
 OUT := out
 
 .PHONY: build clean discipline
@@ -12,5 +12,5 @@ clean:
 	rm -rf $(OUT)
 
 discipline:
-	javac -d $(OUT) --release 21 discipline/Scanner.java
-	java -cp $(OUT) discipline.Scanner src
+	javac -d $(OUT) --release 21 src/main/java/discipline/Scanner.java
+	java -cp $(OUT) discipline.Scanner src/main/java
