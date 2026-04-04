@@ -27,12 +27,26 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * TikTok Live WebSocket client.
+ *
+ * <p>Scheduler pool size: environment variable {@link #ENV_WSS_SCHEDULER_THREADS}
+ * ({@code PIRATETOK_WSS_SCHEDULER_THREADS}): positive integer, default {@code 4}, max {@code 10000}.
+ * Used for heartbeats and stale checks across all connections.</p>
+ */
 public final class Wss {
 
     private static final Logger log = Logger.getLogger(Wss.class.getName());
     private static final long HEARTBEAT_MS = 10_000;
+
+    /** Env: {@value #ENV_WSS_SCHEDULER_THREADS} */
+    public static final String ENV_WSS_SCHEDULER_THREADS = "PIRATETOK_WSS_SCHEDULER_THREADS";
+
+    private static final int DEFAULT_WSS_SCHEDULER_THREADS = 4;
+    private static final int MAX_WSS_SCHEDULER_THREADS = 10_000;
 
     /** RFC 6455 close code 1002 (protocol error); JDK {@code WebSocket} has no named constant for it. */
     private static final int WS_CLOSE_PROTOCOL_ERROR = 1002;
@@ -49,15 +63,64 @@ public final class Wss {
      */
     private static final ScheduledExecutorService WS_SCHEDULER = createWssScheduler();
 
+    private static int readSchedulerPoolSize() {
+        String raw = System.getenv(ENV_WSS_SCHEDULER_THREADS);
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_WSS_SCHEDULER_THREADS;
+        }
+        try {
+            int n = Integer.parseInt(raw.strip());
+            if (n < 1) {
+                log.warning(ENV_WSS_SCHEDULER_THREADS + "=" + raw + " invalid; using default "
+                        + DEFAULT_WSS_SCHEDULER_THREADS);
+                return DEFAULT_WSS_SCHEDULER_THREADS;
+            }
+            if (n > MAX_WSS_SCHEDULER_THREADS) {
+                log.warning(ENV_WSS_SCHEDULER_THREADS + "=" + n + " exceeds max " + MAX_WSS_SCHEDULER_THREADS
+                        + "; capping");
+                return MAX_WSS_SCHEDULER_THREADS;
+            }
+            return n;
+        } catch (NumberFormatException e) {
+            log.warning(ENV_WSS_SCHEDULER_THREADS + "=" + raw + " invalid; using default "
+                    + DEFAULT_WSS_SCHEDULER_THREADS);
+            return DEFAULT_WSS_SCHEDULER_THREADS;
+        }
+    }
+
     private static ScheduledExecutorService createWssScheduler() {
+        int poolSize = readSchedulerPoolSize();
         ThreadFactory tf = r -> {
             Thread t = new Thread(r, "piratetok-wss-" + WSS_THREAD_SEQ.incrementAndGet());
             t.setDaemon(true);
             return t;
         };
-        var ex = new ScheduledThreadPoolExecutor(4, tf);
+        var ex = new ScheduledThreadPoolExecutor(poolSize, tf);
         ex.setRemoveOnCancelPolicy(true);
+        log.info("Wss scheduler: " + poolSize + " threads (" + ENV_WSS_SCHEDULER_THREADS + ")");
         return ex;
+    }
+
+    private static void sendBinaryAsync(WebSocket ws, byte[] payload, String context) {
+        if (ws.isOutputClosed()) {
+            return;
+        }
+        ws.sendBinary(ByteBuffer.wrap(payload), true).whenComplete((w, err) -> {
+            if (err != null) {
+                log.log(Level.FINE, "wss sendBinary (" + context + "): " + err.getMessage(), err);
+            }
+        });
+    }
+
+    private static void sendCloseAsync(WebSocket ws, int code, String reason) {
+        if (ws.isOutputClosed()) {
+            return;
+        }
+        ws.sendClose(code, reason).whenComplete((w, err) -> {
+            if (err != null) {
+                log.log(Level.FINE, "wss sendClose (" + reason + "): " + err.getMessage(), err);
+            }
+        });
     }
 
     /**
@@ -95,12 +158,12 @@ public final class Wss {
 
             @Override
             public void onOpen(WebSocket ws) {
-                ws.sendBinary(ByteBuffer.wrap(Frames.buildHeartbeat(roomId)), true);
-                ws.sendBinary(ByteBuffer.wrap(Frames.buildEnterRoom(roomId)), true);
+                sendBinaryAsync(ws, Frames.buildHeartbeat(roomId), "open-heartbeat");
+                sendBinaryAsync(ws, Frames.buildEnterRoom(roomId), "enter-room");
 
                 heartbeatTask = WS_SCHEDULER.scheduleAtFixedRate(() -> {
                     if (!stop.get() && !ws.isOutputClosed()) {
-                        ws.sendBinary(ByteBuffer.wrap(Frames.buildHeartbeat(roomId)), true);
+                        sendBinaryAsync(ws, Frames.buildHeartbeat(roomId), "heartbeat");
                     }
                 }, HEARTBEAT_MS, HEARTBEAT_MS, TimeUnit.MILLISECONDS);
 
@@ -117,9 +180,7 @@ public final class Wss {
                     binaryBuf.reset();
                     onError.accept(new IOException(
                             "WebSocket message exceeds max size (" + Limits.MAX_WSS_FRAME_BYTES + " bytes)"));
-                    if (!ws.isOutputClosed()) {
-                        ws.sendClose(WS_CLOSE_PROTOCOL_ERROR, "frame too large").join();
-                    }
+                    sendCloseAsync(ws, WS_CLOSE_PROTOCOL_ERROR, "frame too large");
                     ws.request(1);
                     return null;
                 }
@@ -188,9 +249,7 @@ public final class Wss {
         ScheduledFuture<?> staleChecker = WS_SCHEDULER.scheduleAtFixedRate(() -> {
             if (System.currentTimeMillis() - lastData.get() > staleMs) {
                 log.info("stale: no data for " + staleMs + "ms, closing");
-                if (!ws.isOutputClosed()) {
-                    ws.sendClose(WebSocket.NORMAL_CLOSURE, "stale").join();
-                }
+                sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "stale");
             }
         }, staleMs, 5000, TimeUnit.MILLISECONDS);
 
@@ -208,8 +267,8 @@ public final class Wss {
         } finally {
             staleChecker.cancel(false);
         }
-        if (stop.get() && !ws.isOutputClosed()) {
-            ws.sendClose(WebSocket.NORMAL_CLOSURE, "disconnect").join();
+        if (stop.get()) {
+            sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "disconnect");
         }
     }
 
@@ -251,9 +310,7 @@ public final class Wss {
             if (needsAck && internalExt.length > 0) {
                 long logId = frame.getVarint(2);
                 byte[] ack = Frames.buildAck(logId, internalExt);
-                if (!ws.isOutputClosed()) {
-                    ws.sendBinary(ByteBuffer.wrap(ack), true);
-                }
+                sendBinaryAsync(ws, ack, "ack");
             }
 
             for (var msg : response.getRepeatedMessages(1)) {
