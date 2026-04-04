@@ -26,6 +26,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,7 +37,7 @@ import java.util.logging.Logger;
  *
  * <p>Scheduler pool size: environment variable {@link #ENV_WSS_SCHEDULER_THREADS}
  * ({@code PIRATETOK_WSS_SCHEDULER_THREADS}): positive integer, default {@code 4}, max {@code 10000}.
- * Used for heartbeats and stale checks across all connections.</p>
+ * Used for periodic per-connection maintenance (single timer: heartbeat + stale check).</p>
  */
 public final class Wss {
 
@@ -121,6 +123,13 @@ public final class Wss {
         });
     }
 
+    private static void cancelMaintenance(AtomicReference<ScheduledFuture<?>> taskRef) {
+        ScheduledFuture<?> f = taskRef.getAndSet(null);
+        if (f != null) {
+            f.cancel(false);
+        }
+    }
+
     private static void sendCloseAsync(WebSocket ws, int code, String reason) {
         if (ws.isOutputClosed()) {
             return;
@@ -160,21 +169,33 @@ public final class Wss {
         var doneFuture = new CompletableFuture<Void>();
         var binaryBuf = new java.io.ByteArrayOutputStream();
         var lastData = new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis());
+        var lastHeartbeatSent = new AtomicLong(0L);
+        var maintenanceTaskRef = new AtomicReference<ScheduledFuture<?>>();
         long staleMs = staleTimeout.toMillis();
 
         WebSocket.Listener listener = new WebSocket.Listener() {
-            ScheduledFuture<?> heartbeatTask;
-
             @Override
             public void onOpen(WebSocket ws) {
                 sendBinaryAsync(ws, Frames.buildHeartbeat(roomId), "open-heartbeat");
                 sendBinaryAsync(ws, Frames.buildEnterRoom(roomId), "enter-room");
+                lastHeartbeatSent.set(System.currentTimeMillis());
 
-                heartbeatTask = WS_SCHEDULER.scheduleAtFixedRate(() -> {
-                    if (!stop.get() && !ws.isOutputClosed()) {
-                        sendBinaryAsync(ws, Frames.buildHeartbeat(roomId), "heartbeat");
+                ScheduledFuture<?> maintenance = WS_SCHEDULER.scheduleAtFixedRate(() -> {
+                    if (stop.get() || ws.isOutputClosed()) {
+                        return;
                     }
-                }, HEARTBEAT_MS, HEARTBEAT_MS, TimeUnit.MILLISECONDS);
+                    long now = System.currentTimeMillis();
+                    if (now - lastData.get() > staleMs) {
+                        log.info("stale: no data for " + staleMs + "ms, closing");
+                        sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "stale");
+                        return;
+                    }
+                    if (now - lastHeartbeatSent.get() >= HEARTBEAT_MS) {
+                        sendBinaryAsync(ws, Frames.buildHeartbeat(roomId), "heartbeat");
+                        lastHeartbeatSent.set(now);
+                    }
+                }, STALE_RECHECK_INTERVAL_MS, STALE_RECHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+                maintenanceTaskRef.set(maintenance);
 
                 ws.request(1);
             }
@@ -216,14 +237,14 @@ public final class Wss {
 
             @Override
             public CompletionStage<?> onClose(WebSocket ws, int code, String reason) {
-                if (heartbeatTask != null) heartbeatTask.cancel(false);
+                cancelMaintenance(maintenanceTaskRef);
                 doneFuture.complete(null);
                 return null;
             }
 
             @Override
             public void onError(WebSocket ws, Throwable error) {
-                if (heartbeatTask != null) heartbeatTask.cancel(false);
+                cancelMaintenance(maintenanceTaskRef);
                 doneFuture.completeExceptionally(error instanceof Exception ex ? ex : new RuntimeException(error));
             }
         };
@@ -255,13 +276,6 @@ public final class Wss {
             throw ce;
         }
 
-        ScheduledFuture<?> staleChecker = WS_SCHEDULER.scheduleAtFixedRate(() -> {
-            if (System.currentTimeMillis() - lastData.get() > staleMs) {
-                log.info("stale: no data for " + staleMs + "ms, closing");
-                sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "stale");
-            }
-        }, staleMs, STALE_RECHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
-
         try {
             CompletableFuture.anyOf(doneFuture, sessionStop).get();
         } catch (ExecutionException e) {
@@ -274,7 +288,7 @@ public final class Wss {
             }
             throw e;
         } finally {
-            staleChecker.cancel(false);
+            cancelMaintenance(maintenanceTaskRef);
         }
         if (stop.get()) {
             sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "disconnect");
