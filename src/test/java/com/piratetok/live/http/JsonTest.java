@@ -1,5 +1,6 @@
 package com.piratetok.live.http;
 
+import com.piratetok.live.Limits;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -53,5 +54,15 @@ class JsonTest {
     void parseObject_emptyObject() {
         Map<String, Object> m = Json.parseObject("{}");
         assertTrue(m.isEmpty());
+    }
+
+    @Test
+    void parse_rejectsExcessiveNesting() {
+        int depth = Limits.JSON_MAX_NESTING_DEPTH + 1;
+        StringBuilder sb = new StringBuilder();
+        sb.append("[".repeat(depth));
+        sb.append("0");
+        sb.append("]".repeat(depth));
+        assertThrows(IllegalArgumentException.class, () -> Json.parse(sb.toString()));
     }
 }

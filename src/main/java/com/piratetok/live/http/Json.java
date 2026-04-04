@@ -1,14 +1,24 @@
 package com.piratetok.live.http;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.piratetok.live.Limits;
 
 import java.util.Map;
 
 public final class Json {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
+    private static final ObjectMapper MAPPER = new ObjectMapper(
+            JsonFactory.builder()
+                    .streamReadConstraints(StreamReadConstraints.builder()
+                            .maxNestingDepth(Limits.JSON_MAX_NESTING_DEPTH)
+                            .maxStringLength(Limits.JSON_MAX_STRING_LENGTH)
+                            .maxNumberLength(Limits.JSON_MAX_NUMBER_LENGTH)
+                            .build())
+                    .build())
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     public static Object parse(String s) {

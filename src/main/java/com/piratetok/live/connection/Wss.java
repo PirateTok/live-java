@@ -1,6 +1,7 @@
 package com.piratetok.live.connection;
 
 import com.piratetok.live.Errors.DeviceBlockedException;
+import com.piratetok.live.Limits;
 import com.piratetok.live.events.Router;
 import com.piratetok.live.events.TikTokEvent;
 import com.piratetok.live.http.UserAgent;
@@ -32,6 +33,9 @@ public final class Wss {
 
     private static final Logger log = Logger.getLogger(Wss.class.getName());
     private static final long HEARTBEAT_MS = 10_000;
+
+    /** RFC 6455 close code 1002 (protocol error); JDK {@code WebSocket} has no named constant for it. */
+    private static final int WS_CLOSE_PROTOCOL_ERROR = 1002;
 
     /** Shared client for all WebSocket connections; thread-safe and must not be closed per session. */
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -108,14 +112,31 @@ public final class Wss {
                 lastData.set(System.currentTimeMillis());
                 byte[] chunk = new byte[data.remaining()];
                 data.get(chunk);
+                long nextSize = (long) binaryBuf.size() + chunk.length;
+                if (nextSize > Limits.MAX_WSS_FRAME_BYTES) {
+                    binaryBuf.reset();
+                    onError.accept(new IOException(
+                            "WebSocket message exceeds max size (" + Limits.MAX_WSS_FRAME_BYTES + " bytes)"));
+                    if (!ws.isOutputClosed()) {
+                        ws.sendClose(WS_CLOSE_PROTOCOL_ERROR, "frame too large").join();
+                    }
+                    ws.request(1);
+                    return null;
+                }
                 binaryBuf.write(chunk, 0, chunk.length);
 
                 if (last) {
                     byte[] raw = binaryBuf.toByteArray();
                     binaryBuf.reset();
                     try {
+                        if (raw.length > Limits.MAX_WSS_FRAME_BYTES) {
+                            throw new IOException(
+                                    "WebSocket message exceeds max size (" + Limits.MAX_WSS_FRAME_BYTES + " bytes)");
+                        }
                         processFrame(raw, ws, roomId, onEvent);
                     } catch (IOException ex) {
+                        onError.accept(ex);
+                    } catch (RuntimeException ex) {
                         onError.accept(ex);
                     }
                 }
