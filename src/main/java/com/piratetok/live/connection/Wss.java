@@ -34,6 +34,11 @@ public final class Wss {
     private static final Logger log = Logger.getLogger(Wss.class.getName());
     private static final long HEARTBEAT_MS = 10_000;
 
+    /** Shared client for all WebSocket connections; thread-safe and must not be closed per session. */
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .build();
+
     /**
      * Connect to the TikTok Live WSS endpoint.
      *
@@ -116,46 +121,44 @@ public final class Wss {
             }
         };
 
-        try (var client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()) {
-            WebSocket ws;
-            try {
-                ws = client.newWebSocketBuilder()
-                    .header("Cookie", cookieHeader)
-                    .header("User-Agent", ua)
-                    .header("Origin", "https://www.tiktok.com")
-                    .header("Referer", "https://www.tiktok.com/")
-                    .header("Accept-Language", "en-US,en;q=0.9")
-                    .header("Cache-Control", "no-cache")
-                    .buildAsync(URI.create(wssUrl), listener)
-                    .join();
-            } catch (CompletionException ce) {
-                Throwable cause = ce.getCause();
-                if (cause instanceof WebSocketHandshakeException hse) {
-                    checkDeviceBlocked(hse);
-                    throw hse;
-                }
-                if (cause instanceof Exception ex) {
-                    throw ex;
-                }
-                throw ce;
+        WebSocket ws;
+        try {
+            ws = HTTP_CLIENT.newWebSocketBuilder()
+                .header("Cookie", cookieHeader)
+                .header("User-Agent", ua)
+                .header("Origin", "https://www.tiktok.com")
+                .header("Referer", "https://www.tiktok.com/")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Cache-Control", "no-cache")
+                .buildAsync(URI.create(wssUrl), listener)
+                .join();
+        } catch (CompletionException ce) {
+            Throwable cause = ce.getCause();
+            if (cause instanceof WebSocketHandshakeException hse) {
+                checkDeviceBlocked(hse);
+                throw hse;
             }
+            if (cause instanceof Exception ex) {
+                throw ex;
+            }
+            throw ce;
+        }
 
-            ScheduledFuture<?> staleChecker = scheduler.scheduleAtFixedRate(() -> {
-                if (System.currentTimeMillis() - lastData.get() > staleMs) {
-                    log.info("stale: no data for " + staleMs + "ms, closing");
-                    if (!ws.isOutputClosed()) {
-                        ws.sendClose(WebSocket.NORMAL_CLOSURE, "stale").join();
-                    }
+        ScheduledFuture<?> staleChecker = scheduler.scheduleAtFixedRate(() -> {
+            if (System.currentTimeMillis() - lastData.get() > staleMs) {
+                log.info("stale: no data for " + staleMs + "ms, closing");
+                if (!ws.isOutputClosed()) {
+                    ws.sendClose(WebSocket.NORMAL_CLOSURE, "stale").join();
                 }
-            }, staleMs, 5000, TimeUnit.MILLISECONDS);
+            }
+        }, staleMs, 5000, TimeUnit.MILLISECONDS);
 
-            while (!doneFuture.isDone() && !stop.get()) {
-                Thread.sleep(200);
-            }
-            staleChecker.cancel(false);
-            if (stop.get() && !ws.isOutputClosed()) {
-                ws.sendClose(WebSocket.NORMAL_CLOSURE, "disconnect").join();
-            }
+        while (!doneFuture.isDone() && !stop.get()) {
+            Thread.sleep(200);
+        }
+        staleChecker.cancel(false);
+        if (stop.get() && !ws.isOutputClosed()) {
+            ws.sendClose(WebSocket.NORMAL_CLOSURE, "disconnect").join();
         }
         scheduler.shutdownNow();
     }
