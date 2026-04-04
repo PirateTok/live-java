@@ -15,9 +15,13 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -82,6 +86,43 @@ public final class PirateTokClient {
         }
     }
 
+    private enum SessionEnd {
+        /** {@code stop} was set before opening WSS. */
+        STOPPED,
+        DEVICE_BLOCKED,
+        NORMAL
+    }
+
+    /**
+     * One reconnect attempt: fetch ttwid, then block in {@link Wss#connect} until the session ends.
+     *
+     * @return {@link SessionEnd#STOPPED} if {@link #stop} before WSS; {@link SessionEnd#DEVICE_BLOCKED}
+     *         on that handshake outcome; {@link SessionEnd#NORMAL} when the socket session finishes.
+     */
+    private SessionEnd runSingleWssSession(RoomIdResult room, CompletableFuture<Void> sessionStop)
+            throws Exception {
+        String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
+        String ttwid = Ttwid.fetch(timeout, ua);
+        String wssUrl = WssUrl.build(cdnHost, room.roomId());
+        if (stop.get()) {
+            return SessionEnd.STOPPED;
+        }
+        try {
+            Wss.connect(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies,
+                this::emit,
+                e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
+                stop,
+                sessionStop);
+            return SessionEnd.NORMAL;
+        } catch (DeviceBlockedException dbe) {
+            log.warning("DEVICE_BLOCKED — rotating ttwid + UA");
+            return SessionEnd.DEVICE_BLOCKED;
+        }
+    }
+
+    /**
+     * Connect synchronously (blocks the calling thread until disconnect or retry budget exhausted).
+     */
     public String connect() throws Exception {
         var room = Api.checkOnline(username, timeout);
         stop.set(false);
@@ -95,46 +136,112 @@ public final class PirateTokClient {
                 break;
             }
 
-            // Pick UA: user override or random from pool (fresh each attempt)
-            String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
-            String ttwid = Ttwid.fetch(timeout, ua);
-            String wssUrl = WssUrl.build(cdnHost, room.roomId());
+            SessionEnd end = runSingleWssSession(room, sessionStop);
 
             if (stop.get()) {
                 break;
             }
-
-            boolean deviceBlocked = false;
-            try {
-                Wss.connect(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies,
-                    this::emit,
-                    e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
-                    stop,
-                    sessionStop);
-            } catch (DeviceBlockedException dbe) {
-                deviceBlocked = true;
-                log.warning("DEVICE_BLOCKED — rotating ttwid + UA");
+            if (end == SessionEnd.STOPPED) {
+                break;
             }
 
-            if (stop.get()) break;
-
             attempt++;
-            if (attempt > maxRetries) break;
+            if (attempt > maxRetries) {
+                break;
+            }
 
-            // On DEVICE_BLOCKED: short delay (2s) since we're getting a fresh
-            // ttwid + UA anyway. On other errors: exponential backoff.
-            long delay = deviceBlocked ? 2 : Math.min(1L << attempt, 30);
+            long delaySecs = end == SessionEnd.DEVICE_BLOCKED ? 2 : Math.min(1L << attempt, 30);
 
             emit(new TikTokEvent(EventType.RECONNECTING,
-                Map.of("attempt", attempt, "maxRetries", maxRetries, "delaySecs", delay),
+                Map.of("attempt", attempt, "maxRetries", maxRetries, "delaySecs", delaySecs),
                 room.roomId()));
 
-            log.info("reconnecting in " + delay + "s (attempt " + attempt + "/" + maxRetries + ")");
-            Thread.sleep(delay * 1000);
+            log.info("reconnecting in " + delaySecs + "s (attempt " + attempt + "/" + maxRetries + ")");
+            Thread.sleep(delaySecs * 1000);
         }
 
         emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
         return room.roomId();
+    }
+
+    /**
+     * Connect without blocking the calling thread. Work runs on the {@link ForkJoinPool#commonPool()}.
+     *
+     * <p>For many concurrent streams, prefer {@link #connectAsync(Executor)} with a dedicated
+     * {@link java.util.concurrent.Executors#newVirtualThreadPerTaskExecutor() virtual-thread}
+     * (Java 21+) or bounded pool so Tomcat/worker threads are not pinned.</p>
+     *
+     * @return completes with {@code roomId} when the client stops (disconnect or max retries), or
+     *         completes exceptionally if e.g. {@link Api#checkOnline} fails
+     */
+    public CompletableFuture<String> connectAsync() {
+        return connectAsync(ForkJoinPool.commonPool());
+    }
+
+    /**
+     * Like {@link #connectAsync()} but uses the given executor for I/O and delayed reconnect steps.
+     */
+    public CompletableFuture<String> connectAsync(Executor executor) {
+        Objects.requireNonNull(executor, "executor");
+        return CompletableFuture
+                .supplyAsync(() -> {
+                    try {
+                        return Api.checkOnline(username, timeout);
+                    } catch (IOException | InterruptedException e) {
+                        if (e instanceof InterruptedException) {
+                            Thread.currentThread().interrupt();
+                        }
+                        throw new RuntimeException(e);
+                    }
+                }, executor)
+                .thenCompose(room -> {
+                    stop.set(false);
+                    emit(new TikTokEvent(EventType.CONNECTED, Map.of("roomId", room.roomId()), room.roomId()));
+                    return sessionLoopAsync(room, 0, executor);
+                });
+    }
+
+    private CompletableFuture<String> sessionLoopAsync(RoomIdResult room, int finishedAttempts, Executor executor) {
+        if (stop.get()) {
+            emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
+            return CompletableFuture.completedFuture(room.roomId());
+        }
+        var sessionStop = new CompletableFuture<Void>();
+        activeSessionStop.set(sessionStop);
+        if (stop.get()) {
+            emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
+            return CompletableFuture.completedFuture(room.roomId());
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return runSingleWssSession(room, sessionStop);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }, executor).thenCompose(end -> {
+            if (stop.get()) {
+                emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
+                return CompletableFuture.completedFuture(room.roomId());
+            }
+            if (end == SessionEnd.STOPPED) {
+                emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
+                return CompletableFuture.completedFuture(room.roomId());
+            }
+            int attempt = finishedAttempts + 1;
+            if (attempt > maxRetries) {
+                emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
+                return CompletableFuture.completedFuture(room.roomId());
+            }
+            long delaySecs = end == SessionEnd.DEVICE_BLOCKED ? 2 : Math.min(1L << attempt, 30);
+            emit(new TikTokEvent(EventType.RECONNECTING,
+                Map.of("attempt", attempt, "maxRetries", maxRetries, "delaySecs", delaySecs),
+                room.roomId()));
+            log.info("reconnecting in " + delaySecs + "s (attempt " + attempt + "/" + maxRetries + ")");
+            var delayed = CompletableFuture.delayedExecutor(delaySecs, TimeUnit.SECONDS, executor);
+            return CompletableFuture.runAsync(() -> {}, delayed)
+                    .thenCompose(___ -> sessionLoopAsync(room, attempt, executor));
+        });
     }
 
     public void disconnect() {
