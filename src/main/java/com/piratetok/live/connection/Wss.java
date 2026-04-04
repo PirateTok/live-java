@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -67,13 +68,15 @@ public final class Wss {
      * @param onEvent       event callback
      * @param onError       error callback
      * @param stop          atomic flag to signal disconnect
+     * @param sessionStop   completes when this session should end (e.g. user disconnect); new instance per attempt
      * @throws DeviceBlockedException if handshake returns DEVICE_BLOCKED
      */
     public static void connect(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
             String userAgent, String cookies,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
-            AtomicBoolean stop
+            AtomicBoolean stop,
+            CompletableFuture<Void> sessionStop
     ) throws Exception {
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
         String cookieHeader = buildCookieHeader(ttwid, cookies);
@@ -134,6 +137,10 @@ public final class Wss {
             }
         };
 
+        if (sessionStop.isDone()) {
+            return;
+        }
+
         WebSocket ws;
         try {
             ws = HTTP_CLIENT.newWebSocketBuilder()
@@ -166,10 +173,20 @@ public final class Wss {
             }
         }, staleMs, 5000, TimeUnit.MILLISECONDS);
 
-        while (!doneFuture.isDone() && !stop.get()) {
-            Thread.sleep(200);
+        try {
+            CompletableFuture.anyOf(doneFuture, sessionStop).get();
+        } catch (ExecutionException e) {
+            Throwable c = e.getCause();
+            if (c instanceof Exception ex) {
+                throw ex;
+            }
+            if (c != null) {
+                throw new Exception(c);
+            }
+            throw e;
+        } finally {
+            staleChecker.cancel(false);
         }
-        staleChecker.cancel(false);
         if (stop.get() && !ws.isOutputClosed()) {
             ws.sendClose(WebSocket.NORMAL_CLOSURE, "disconnect").join();
         }

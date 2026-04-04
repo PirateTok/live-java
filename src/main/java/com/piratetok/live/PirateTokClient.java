@@ -15,9 +15,11 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -33,6 +35,8 @@ public final class PirateTokClient {
     private String userAgent;
     private String cookies;
     private final AtomicBoolean stop = new AtomicBoolean(false);
+    /** Current WSS session stop signal; replaced each reconnect attempt. */
+    private final AtomicReference<CompletableFuture<Void>> activeSessionStop = new AtomicReference<>();
     private final Map<String, List<Consumer<TikTokEvent>>> listeners = new ConcurrentHashMap<>();
 
     public PirateTokClient(String username) {
@@ -85,17 +89,28 @@ public final class PirateTokClient {
 
         int attempt = 0;
         while (!stop.get()) {
+            var sessionStop = new CompletableFuture<Void>();
+            activeSessionStop.set(sessionStop);
+            if (stop.get()) {
+                break;
+            }
+
             // Pick UA: user override or random from pool (fresh each attempt)
             String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
             String ttwid = Ttwid.fetch(timeout, ua);
             String wssUrl = WssUrl.build(cdnHost, room.roomId());
+
+            if (stop.get()) {
+                break;
+            }
 
             boolean deviceBlocked = false;
             try {
                 Wss.connect(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies,
                     this::emit,
                     e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
-                    stop);
+                    stop,
+                    sessionStop);
             } catch (DeviceBlockedException dbe) {
                 deviceBlocked = true;
                 log.warning("DEVICE_BLOCKED — rotating ttwid + UA");
@@ -122,7 +137,13 @@ public final class PirateTokClient {
         return room.roomId();
     }
 
-    public void disconnect() { stop.set(true); }
+    public void disconnect() {
+        stop.set(true);
+        CompletableFuture<Void> f = activeSessionStop.get();
+        if (f != null) {
+            f.complete(null);
+        }
+    }
 
     public static RoomIdResult checkOnline(String username, Duration timeout)
             throws IOException, InterruptedException {
