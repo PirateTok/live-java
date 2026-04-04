@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.time.Duration;
 import java.util.Map;
@@ -22,7 +24,10 @@ import static org.junit.jupiter.api.Assertions.fail;
  * Short WebSocket smoke tests against a real live room. Flaky under rate limits or quiet streams.
  *
  * <p>Requires {@code PIRATETOK_LIVE_TEST_USER} (live during the run). Uses EU CDN, modest retries.</p>
+ *
+ * <p>Test methods run concurrently (see {@code junit-platform.properties}, parallelism 8).</p>
  */
+@Execution(ExecutionMode.CONCURRENT)
 @Tag("integration")
 class PirateTokClientWssSmokeTest {
 
