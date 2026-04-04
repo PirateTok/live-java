@@ -33,7 +33,7 @@ public class BasicChat {
             System.out.println("[join] " + user.getOrDefault("uniqueId", "?"));
         });
 
-        client.on(EventType.ROOM_USER_SEQ, e -> System.out.println("[viewers] " + e.data().get("totalUser")));
+        client.on(EventType.ROOM_USER_SEQ, e -> System.out.println("[viewers] " + e.data().get("uniqueViewerCount")));
         client.on(EventType.LIVE_ENDED, e -> System.out.println("[stream ended]"));
         client.on(EventType.DISCONNECTED, e -> System.out.println("disconnected"));
 

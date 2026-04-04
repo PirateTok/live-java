@@ -202,10 +202,10 @@ public final class Schema {
 
     public static final Map<Integer, FieldDef> ROOM_USER_SEQ = Map.of(
         1, new FieldDef("common", MESSAGE, COMMON),
-        3, new FieldDef("total", VARINT),
+        3, new FieldDef("currentViewerCount", VARINT),
         4, new FieldDef("popStr", STRING),
         6, new FieldDef("popularity", VARINT),
-        7, new FieldDef("totalUser", INT32)
+        7, new FieldDef("uniqueViewerCount", INT32)
     );
 
     public static final Map<Integer, FieldDef> CONTROL = Map.of(
