@@ -36,7 +36,7 @@ client.connect();
 
 ## Install
 
-Requires Java >= 21. No external runtime dependencies.
+Requires Java >= 25. No external runtime dependencies.
 
 **Maven** (recommended):
 

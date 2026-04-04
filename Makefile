@@ -5,12 +5,12 @@ OUT := out
 
 build: $(SOURCES)
 	@mkdir -p $(OUT)
-	javac -d $(OUT) --release 21 $(SOURCES)
+	javac -d $(OUT) --release 25 $(SOURCES)
 	@echo "build ok — $$(echo $(SOURCES) | wc -w) files"
 
 clean:
 	rm -rf $(OUT)
 
 discipline:
-	javac -d $(OUT) --release 21 src/main/java/discipline/Scanner.java
+	javac -d $(OUT) --release 25 src/main/java/discipline/Scanner.java
 	java -cp $(OUT) discipline.Scanner src/main/java
