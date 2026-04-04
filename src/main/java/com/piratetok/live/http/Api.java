@@ -9,7 +9,6 @@ import com.piratetok.live.Errors.UserNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -115,12 +114,11 @@ public final class Api {
         if (cookies != null && !cookies.isEmpty()) {
             builder.header("Cookie", cookies);
         }
-        try (var client = HttpClient.newHttpClient()) {
-            var resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            int status = resp.statusCode();
-            if (status == 403 || status == 429) throw new TikTokBlockedException(status);
-            return resp.body();
-        }
+        var resp = SharedHttpClient.instance()
+                .send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        int status = resp.statusCode();
+        if (status == 403 || status == 429) throw new TikTokBlockedException(status);
+        return resp.body();
     }
 
     private static long longVal(Map<String, Object> m, String key) {
