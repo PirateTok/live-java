@@ -14,6 +14,9 @@ import static com.piratetok.live.proto.Proto.FieldType.STRING;
 import static com.piratetok.live.proto.Proto.FieldType.STRING_MAP;
 import static com.piratetok.live.proto.Proto.FieldType.VARINT;
 
+/**
+ * TikTok webcast protobuf field layouts; map keys are wire tags from upstream payloads.
+ */
 public final class Schema {
 
     // === Common types ===

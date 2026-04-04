@@ -11,6 +11,12 @@ import java.util.zip.GZIPInputStream;
 
 public final class Frames {
 
+    private static final int GZIP_MAGIC_BYTE1 = 0x1F;
+    private static final int GZIP_MAGIC_BYTE2 = 0x8B;
+
+    /** TikTok enter-room inner payload: field 4 (client / scene type for web audience). */
+    private static final long ENTER_ROOM_CLIENT_TYPE = 12L;
+
     public static byte[] buildHeartbeat(String roomId) {
         byte[] hb = Proto.encode(w -> w.writeUint64(1, Long.parseLong(roomId)));
         return Proto.encode(w -> {
@@ -23,7 +29,7 @@ public final class Frames {
     public static byte[] buildEnterRoom(String roomId) {
         byte[] enter = Proto.encode(w -> {
             w.writeInt64(1, Long.parseLong(roomId));
-            w.writeInt64(4, 12);
+            w.writeInt64(4, ENTER_ROOM_CLIENT_TYPE);
             w.writeString(5, "audience");
             w.writeString(9, "0");
         });
@@ -44,7 +50,9 @@ public final class Frames {
     }
 
     public static byte[] decompressIfGzipped(byte[] data) throws IOException {
-        if (data.length >= 2 && (data[0] & 0xFF) == 0x1F && (data[1] & 0xFF) == 0x8B) {
+        if (data.length >= 2
+                && (data[0] & 0xFF) == GZIP_MAGIC_BYTE1
+                && (data[1] & 0xFF) == GZIP_MAGIC_BYTE2) {
             var bais = new ByteArrayInputStream(data);
             var gis = new GZIPInputStream(bais);
             try (gis) {

@@ -9,8 +9,10 @@ import java.time.Duration;
  */
 public final class SharedHttpClient {
 
+    private static final int CONNECT_TIMEOUT_SECONDS = 20;
+
     private static final HttpClient INSTANCE = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(20))
+            .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
             .build();
 
     public static HttpClient instance() {

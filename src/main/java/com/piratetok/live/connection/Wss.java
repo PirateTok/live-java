@@ -40,7 +40,16 @@ import java.util.logging.Logger;
 public final class Wss {
 
     private static final Logger log = Logger.getLogger(Wss.class.getName());
-    private static final long HEARTBEAT_MS = 10_000;
+
+    /**
+     * Client heartbeat period in ms; must match webcast {@code heartbeat_duration} (see {@link WssUrl}).
+     */
+    public static final long HEARTBEAT_INTERVAL_MS = 10_000L;
+
+    private static final long HEARTBEAT_MS = HEARTBEAT_INTERVAL_MS;
+
+    /** How often to re-check for stale connections (no inbound data). */
+    private static final long STALE_RECHECK_INTERVAL_MS = 5_000L;
 
     /** Env: {@value #ENV_WSS_SCHEDULER_THREADS} */
     public static final String ENV_WSS_SCHEDULER_THREADS = "PIRATETOK_WSS_SCHEDULER_THREADS";
@@ -251,7 +260,7 @@ public final class Wss {
                 log.info("stale: no data for " + staleMs + "ms, closing");
                 sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "stale");
             }
-        }, staleMs, 5000, TimeUnit.MILLISECONDS);
+        }, staleMs, STALE_RECHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
         try {
             CompletableFuture.anyOf(doneFuture, sessionStop).get();

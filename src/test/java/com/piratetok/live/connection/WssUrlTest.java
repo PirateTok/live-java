@@ -24,6 +24,7 @@ class WssUrlTest {
         assertEquals(roomId, q.get("room_id"));
         assertEquals("protobuf", q.get("resp_content_type"));
         assertEquals("1988", q.get("aid"));
+        assertEquals(Long.toString(Wss.HEARTBEAT_INTERVAL_MS), q.get("heartbeat_duration"));
         assertEquals("audience", q.get("identity"));
     }
 

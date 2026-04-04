@@ -31,11 +31,18 @@ public final class PirateTokClient {
 
     private static final Logger log = Logger.getLogger(PirateTokClient.class.getName());
 
+    private static final int DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
+    private static final int DEFAULT_MAX_RETRIES = 5;
+    private static final int DEFAULT_STALE_TIMEOUT_SECONDS = 60;
+
+    private static final long DEVICE_BLOCKED_RECONNECT_DELAY_SECONDS = 2L;
+    private static final long MAX_EXPONENTIAL_RECONNECT_BACKOFF_SECONDS = 30L;
+
     private final String username;
     private String cdnHost = "webcast-ws.tiktok.com";
-    private Duration timeout = Duration.ofSeconds(10);
-    private int maxRetries = 5;
-    private Duration staleTimeout = Duration.ofSeconds(60);
+    private Duration timeout = Duration.ofSeconds(DEFAULT_CONNECT_TIMEOUT_SECONDS);
+    private int maxRetries = DEFAULT_MAX_RETRIES;
+    private Duration staleTimeout = Duration.ofSeconds(DEFAULT_STALE_TIMEOUT_SECONDS);
     private String userAgent;
     private String cookies;
     private final AtomicBoolean stop = new AtomicBoolean(false);
@@ -91,6 +98,12 @@ public final class PirateTokClient {
         STOPPED,
         DEVICE_BLOCKED,
         NORMAL
+    }
+
+    private static long reconnectDelaySeconds(SessionEnd end, int attempt) {
+        return end == SessionEnd.DEVICE_BLOCKED
+                ? DEVICE_BLOCKED_RECONNECT_DELAY_SECONDS
+                : Math.min(1L << attempt, MAX_EXPONENTIAL_RECONNECT_BACKOFF_SECONDS);
     }
 
     /**
@@ -150,14 +163,14 @@ public final class PirateTokClient {
                 break;
             }
 
-            long delaySecs = end == SessionEnd.DEVICE_BLOCKED ? 2 : Math.min(1L << attempt, 30);
+            long delaySecs = reconnectDelaySeconds(end, attempt);
 
             emit(new TikTokEvent(EventType.RECONNECTING,
                 Map.of("attempt", attempt, "maxRetries", maxRetries, "delaySecs", delaySecs),
                 room.roomId()));
 
             log.info("reconnecting in " + delaySecs + "s (attempt " + attempt + "/" + maxRetries + ")");
-            Thread.sleep(delaySecs * 1000);
+            Thread.sleep(TimeUnit.SECONDS.toMillis(delaySecs));
         }
 
         emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
@@ -233,7 +246,7 @@ public final class PirateTokClient {
                 emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
                 return CompletableFuture.completedFuture(room.roomId());
             }
-            long delaySecs = end == SessionEnd.DEVICE_BLOCKED ? 2 : Math.min(1L << attempt, 30);
+            long delaySecs = reconnectDelaySeconds(end, attempt);
             emit(new TikTokEvent(EventType.RECONNECTING,
                 Map.of("attempt", attempt, "maxRetries", maxRetries, "delaySecs", delaySecs),
                 room.roomId()));
