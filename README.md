@@ -136,6 +136,7 @@ Tests live under `src/test/java` and call TikTok over the network. They are **sk
 | `PIRATETOK_LIVE_TEST_USER` | for HTTP + WSS tests | Username that is **live** for the whole run |
 | `PIRATETOK_LIVE_TEST_OFFLINE_USER` | optional | Username that must **not** be live (`HostNotOnlineException`) |
 | `PIRATETOK_LIVE_TEST_COOKIES` | optional | Cookie header for `fetchRoomInfo` on age-restricted rooms |
+| `PIRATETOK_LIVE_TEST_HTTP` | optional (`1`, `true`, or `yes`) | Enables HTTP probe for `UserNotFoundException` (fixed synthetic username; no live stream) |
 
 Examples:
 
