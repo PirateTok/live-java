@@ -18,7 +18,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -141,8 +140,16 @@ public final class Wss {
         });
     }
 
+    private static Throwable unwrapCompletion(Throwable ex) {
+        return ex instanceof CompletionException ce && ce.getCause() != null ? ce.getCause() : ex;
+    }
+
     /**
-     * Connect to the TikTok Live WSS endpoint.
+     * Connect to the TikTok Live WSS endpoint without blocking a thread for the session lifetime.
+     *
+     * <p>Completes when the socket closes, {@code sessionStop} completes, or an error occurs.
+     * The handshake still runs on the JDK HTTP client executor; use {@link #connect} if you need
+     * a blocking API.</p>
      *
      * @param wssUrl        full WebSocket URL
      * @param ttwid         ttwid cookie value
@@ -154,15 +161,19 @@ public final class Wss {
      * @param onError       error callback
      * @param stop          atomic flag to signal disconnect
      * @param sessionStop   completes when this session should end (e.g. user disconnect); new instance per attempt
-     * @throws DeviceBlockedException if handshake returns DEVICE_BLOCKED
+     * @return completes normally when the session ends; completes exceptionally on handshake or socket errors
      */
-    public static void connect(
+    public static CompletableFuture<Void> connectAsync(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
             String userAgent, String cookies,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
             CompletableFuture<Void> sessionStop
-    ) throws Exception {
+    ) {
+        if (sessionStop.isDone()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
         String cookieHeader = buildCookieHeader(ttwid, cookies);
 
@@ -249,13 +260,7 @@ public final class Wss {
             }
         };
 
-        if (sessionStop.isDone()) {
-            return;
-        }
-
-        WebSocket ws;
-        try {
-            ws = HTTP_CLIENT.newWebSocketBuilder()
+        return HTTP_CLIENT.newWebSocketBuilder()
                 .header("Cookie", cookieHeader)
                 .header("User-Agent", ua)
                 .header("Origin", "https://www.tiktok.com")
@@ -263,35 +268,91 @@ public final class Wss {
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("Cache-Control", "no-cache")
                 .buildAsync(URI.create(wssUrl), listener)
-                .join();
-        } catch (CompletionException ce) {
-            Throwable cause = ce.getCause();
-            if (cause instanceof WebSocketHandshakeException hse) {
-                checkDeviceBlocked(hse);
-                throw hse;
-            }
-            if (cause instanceof Exception ex) {
-                throw ex;
-            }
-            throw ce;
-        }
+                .handle((ws, ex) -> {
+                    if (ex != null) {
+                        Throwable c = unwrapCompletion(ex);
+                        if (c instanceof WebSocketHandshakeException hse) {
+                            checkDeviceBlocked(hse);
+                        }
+                        if (c instanceof RuntimeException re) {
+                            throw new CompletionException(re);
+                        }
+                        if (c instanceof Exception e) {
+                            throw new CompletionException(e);
+                        }
+                        throw new CompletionException(c);
+                    }
+                    return ws;
+                })
+                .thenCompose(ws -> {
+                    if (sessionStop.isDone()) {
+                        cancelMaintenance(maintenanceTaskRef);
+                        sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "disconnect");
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    return awaitSessionEnd(doneFuture, sessionStop, stop, ws, maintenanceTaskRef);
+                });
+    }
 
+    private static CompletableFuture<Void> awaitSessionEnd(
+            CompletableFuture<Void> doneFuture,
+            CompletableFuture<Void> sessionStop,
+            AtomicBoolean stop,
+            WebSocket ws,
+            AtomicReference<ScheduledFuture<?>> maintenanceTaskRef) {
+        return CompletableFuture.anyOf(doneFuture, sessionStop).handle((__, ex) -> {
+            cancelMaintenance(maintenanceTaskRef);
+            if (stop.get()) {
+                sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "disconnect");
+            }
+            if (ex != null) {
+                Throwable c = unwrapCompletion(ex);
+                if (c instanceof RuntimeException re) {
+                    throw new CompletionException(re);
+                }
+                if (c instanceof Exception e) {
+                    throw new CompletionException(e);
+                }
+                throw new CompletionException(c);
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Connect to the TikTok Live WSS endpoint (blocks the calling thread until the session ends).
+     *
+     * @param wssUrl        full WebSocket URL
+     * @param ttwid         ttwid cookie value
+     * @param roomId        room ID string
+     * @param staleTimeout  close if no data for this duration
+     * @param userAgent     user agent string, or {@code null} for random
+     * @param cookies       extra cookies to append alongside ttwid, or {@code null}
+     * @param onEvent       event callback
+     * @param onError       error callback
+     * @param stop          atomic flag to signal disconnect
+     * @param sessionStop   completes when this session should end (e.g. user disconnect); new instance per attempt
+     * @throws DeviceBlockedException if handshake returns DEVICE_BLOCKED
+     */
+    public static void connect(
+            String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
+            String userAgent, String cookies,
+            Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
+            AtomicBoolean stop,
+            CompletableFuture<Void> sessionStop
+    ) throws Exception {
         try {
-            CompletableFuture.anyOf(doneFuture, sessionStop).get();
-        } catch (ExecutionException e) {
-            Throwable c = e.getCause();
+            connectAsync(wssUrl, ttwid, roomId, staleTimeout, userAgent, cookies,
+                    onEvent, onError, stop, sessionStop).join();
+        } catch (CompletionException ce) {
+            Throwable c = ce.getCause();
             if (c instanceof Exception ex) {
                 throw ex;
             }
             if (c != null) {
                 throw new Exception(c);
             }
-            throw e;
-        } finally {
-            cancelMaintenance(maintenanceTaskRef);
-        }
-        if (stop.get()) {
-            sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "disconnect");
+            throw ce;
         }
     }
 

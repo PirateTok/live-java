@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
@@ -134,6 +135,49 @@ public final class PirateTokClient {
     }
 
     /**
+     * Like {@link #runSingleWssSession} but uses {@link Wss#connectAsync} so no executor thread is held
+     * for the whole WebSocket lifetime (only {@code ttwid} fetch and reconnect delays use the executor).
+     */
+    private CompletableFuture<SessionEnd> runSingleWssSessionAsync(
+            RoomIdResult room, CompletableFuture<Void> sessionStop, Executor executor) {
+        String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return Ttwid.fetch(timeout, ua);
+            } catch (IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                throw new RuntimeException(e);
+            }
+        }, executor).thenCompose(ttwid -> {
+            if (stop.get()) {
+                return CompletableFuture.completedFuture(SessionEnd.STOPPED);
+            }
+            String wssUrl = WssUrl.build(cdnHost, room.roomId());
+            return Wss.connectAsync(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies,
+                    this::emit,
+                    e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
+                    stop,
+                    sessionStop).handle((v, ex) -> {
+                if (ex == null) {
+                    return SessionEnd.NORMAL;
+                }
+                Throwable c = ex instanceof CompletionException && ex.getCause() != null
+                        ? ex.getCause() : ex;
+                if (c instanceof DeviceBlockedException) {
+                    log.warning("DEVICE_BLOCKED — rotating ttwid + UA");
+                    return SessionEnd.DEVICE_BLOCKED;
+                }
+                if (c instanceof RuntimeException re) {
+                    throw re;
+                }
+                throw new RuntimeException(c);
+            });
+        });
+    }
+
+    /**
      * Connect synchronously (blocks the calling thread until disconnect or retry budget exhausted).
      */
     public String connect() throws Exception {
@@ -182,7 +226,8 @@ public final class PirateTokClient {
      *
      * <p>For many concurrent streams, prefer {@link #connectAsync(Executor)} with a dedicated
      * {@link java.util.concurrent.Executors#newVirtualThreadPerTaskExecutor() virtual-thread}
-     * (Java 21+) or bounded pool so Tomcat/worker threads are not pinned.</p>
+     * (Java 21+) or a small bounded pool: the WebSocket session uses {@link Wss#connectAsync} and does
+     * not hold an executor thread for the socket lifetime (only ttwid fetch and reconnect delays run on the executor).</p>
      *
      * @return completes with {@code roomId} when the client stops (disconnect or max retries), or
      *         completes exceptionally if e.g. {@link Api#checkOnline} fails
@@ -226,13 +271,7 @@ public final class PirateTokClient {
             return CompletableFuture.completedFuture(room.roomId());
         }
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return runSingleWssSession(room, sessionStop);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }, executor).thenCompose(end -> {
+        return runSingleWssSessionAsync(room, sessionStop, executor).thenCompose(end -> {
             if (stop.get()) {
                 emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
                 return CompletableFuture.completedFuture(room.roomId());
