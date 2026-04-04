@@ -1,7 +1,6 @@
 package com.piratetok.live.connection;
 
 import com.piratetok.live.Errors.DeviceBlockedException;
-import com.piratetok.live.events.EventType;
 import com.piratetok.live.events.Router;
 import com.piratetok.live.events.TikTokEvent;
 import com.piratetok.live.http.UserAgent;
@@ -14,8 +13,6 @@ import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.net.http.WebSocketHandshakeException;
 import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -23,10 +20,11 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class Wss {
@@ -38,6 +36,24 @@ public final class Wss {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .build();
+
+    private static final AtomicInteger WSS_THREAD_SEQ = new AtomicInteger();
+
+    /**
+     * Daemon scheduler for all connections: heartbeat + stale checks. Do not shut down per session.
+     */
+    private static final ScheduledExecutorService WS_SCHEDULER = createWssScheduler();
+
+    private static ScheduledExecutorService createWssScheduler() {
+        ThreadFactory tf = r -> {
+            Thread t = new Thread(r, "piratetok-wss-" + WSS_THREAD_SEQ.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        };
+        var ex = new ScheduledThreadPoolExecutor(4, tf);
+        ex.setRemoveOnCancelPolicy(true);
+        return ex;
+    }
 
     /**
      * Connect to the TikTok Live WSS endpoint.
@@ -63,7 +79,6 @@ public final class Wss {
         String cookieHeader = buildCookieHeader(ttwid, cookies);
 
         var doneFuture = new CompletableFuture<Void>();
-        ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(2);
         var binaryBuf = new java.io.ByteArrayOutputStream();
         var lastData = new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis());
         long staleMs = staleTimeout.toMillis();
@@ -76,7 +91,7 @@ public final class Wss {
                 ws.sendBinary(ByteBuffer.wrap(Frames.buildHeartbeat(roomId)), true);
                 ws.sendBinary(ByteBuffer.wrap(Frames.buildEnterRoom(roomId)), true);
 
-                heartbeatTask = scheduler.scheduleAtFixedRate(() -> {
+                heartbeatTask = WS_SCHEDULER.scheduleAtFixedRate(() -> {
                     if (!stop.get() && !ws.isOutputClosed()) {
                         ws.sendBinary(ByteBuffer.wrap(Frames.buildHeartbeat(roomId)), true);
                     }
@@ -108,7 +123,6 @@ public final class Wss {
             @Override
             public CompletionStage<?> onClose(WebSocket ws, int code, String reason) {
                 if (heartbeatTask != null) heartbeatTask.cancel(false);
-                scheduler.shutdown();
                 doneFuture.complete(null);
                 return null;
             }
@@ -116,7 +130,6 @@ public final class Wss {
             @Override
             public void onError(WebSocket ws, Throwable error) {
                 if (heartbeatTask != null) heartbeatTask.cancel(false);
-                scheduler.shutdown();
                 doneFuture.completeExceptionally(error instanceof Exception ex ? ex : new RuntimeException(error));
             }
         };
@@ -144,7 +157,7 @@ public final class Wss {
             throw ce;
         }
 
-        ScheduledFuture<?> staleChecker = scheduler.scheduleAtFixedRate(() -> {
+        ScheduledFuture<?> staleChecker = WS_SCHEDULER.scheduleAtFixedRate(() -> {
             if (System.currentTimeMillis() - lastData.get() > staleMs) {
                 log.info("stale: no data for " + staleMs + "ms, closing");
                 if (!ws.isOutputClosed()) {
@@ -160,7 +173,6 @@ public final class Wss {
         if (stop.get() && !ws.isOutputClosed()) {
             ws.sendClose(WebSocket.NORMAL_CLOSURE, "disconnect").join();
         }
-        scheduler.shutdownNow();
     }
 
     /**
