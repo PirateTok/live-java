@@ -127,6 +127,25 @@ java -cp target/classes GiftTracker <username>     # track gifts with diamond to
 
 With **Make** instead of Maven, use `make build` and `-cp out`.
 
+## Integration tests (real TikTok API)
+
+Tests live under `src/test/java` and call TikTok over the network. They are **skipped unless environment variables are set**, so `mvn test` succeeds in CI without secrets.
+
+| Variable | Required | Purpose |
+|:---------|:---------|:--------|
+| `PIRATETOK_LIVE_TEST_USER` | for HTTP + WSS tests | Username that is **live** for the whole run |
+| `PIRATETOK_LIVE_TEST_OFFLINE_USER` | optional | Username that must **not** be live (`HostNotOnlineException`) |
+| `PIRATETOK_LIVE_TEST_COOKIES` | optional | Cookie header for `fetchRoomInfo` on age-restricted rooms |
+
+Examples:
+
+```bash
+set PIRATETOK_LIVE_TEST_USER=some_live_creator
+mvn test
+```
+
+Expect occasional failures from rate limits, blocks, or the stream going offline.
+
 ## Known gaps
 
 - Proxy transport support is not wired yet.
