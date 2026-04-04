@@ -36,13 +36,23 @@ client.connect();
 
 ## Install
 
-Requires Java >= 21. No external dependencies.
+Requires Java >= 21. No external runtime dependencies.
+
+**Maven** (recommended):
+
+```
+mvn -q package
+```
+
+The JAR is `target/live-0.1.0-SNAPSHOT.jar`. Compiled classes (including examples) are under `target/classes`.
+
+**Make** (plain `javac`, no Maven):
 
 ```
 make build
 ```
 
-Maven/Gradle publishing is in progress. For now, build from source.
+Output directory is `out/`.
 
 ## Other languages
 
@@ -108,12 +118,14 @@ All protobuf encoding/decoding is hand-written -- no `.proto` files, no codegen,
 ## Examples
 
 ```bash
-make build
-java -cp out examples/BasicChat.java <username>       # connect + print chat events
-java -cp out examples/OnlineCheck.java <username>     # check if user is live
-java -cp out examples/StreamInfo.java <username>      # fetch room metadata + stream URLs
-java -cp out examples/GiftTracker.java <username>     # track gifts with diamond totals
+mvn -q package
+java -cp target/classes BasicChat <username>       # connect + print chat events
+java -cp target/classes OnlineCheck <username>     # check if user is live
+java -cp target/classes StreamInfo <username>      # fetch room metadata + stream URLs
+java -cp target/classes GiftTracker <username>     # track gifts with diamond totals
 ```
+
+With **Make** instead of Maven, use `make build` and `-cp out`.
 
 ## Known gaps
 
