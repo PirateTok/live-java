@@ -16,6 +16,7 @@ import java.util.function.BiConsumer;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Short WebSocket smoke tests against a real live room. Flaky under rate limits or quiet streams.
@@ -32,6 +33,48 @@ class PirateTokClientWssSmokeTest {
     private static final Duration AWAIT_JOIN = Duration.ofSeconds(150);
     private static final Duration AWAIT_FOLLOW = Duration.ofSeconds(180);
     private static final Duration AWAIT_SUBSCRIPTION = Duration.ofSeconds(240);
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "PIRATETOK_LIVE_TEST_USER", matches = ".+")
+    void disconnect_unblocksConnectThreadAfterConnected() throws Exception {
+        String user = System.getenv("PIRATETOK_LIVE_TEST_USER").strip();
+        var connected = new CountDownLatch(1);
+        var workerError = new AtomicReference<Throwable>();
+
+        var client = new PirateTokClient(user)
+                .cdnEU()
+                .timeout(Duration.ofSeconds(15))
+                .maxRetries(5)
+                .staleTimeout(Duration.ofSeconds(45));
+        client.on(EventType.CONNECTED, e -> connected.countDown());
+
+        Thread worker = new Thread(() -> {
+            try {
+                client.connect();
+            } catch (Throwable t) {
+                workerError.set(t);
+            }
+        }, "wss-disconnect-" + user);
+        worker.start();
+
+        try {
+            if (!connected.await(90, TimeUnit.SECONDS)) {
+                fail("never reached CONNECTED within 90s (offline user or network)");
+            }
+            assertNull(workerError.get(), () -> "connect thread failed before disconnect: " + workerError.get());
+
+            long t0 = System.currentTimeMillis();
+            client.disconnect();
+            worker.join(20_000);
+            assertFalse(worker.isAlive(), "connect thread should exit after disconnect()");
+            assertTrue(
+                    System.currentTimeMillis() - t0 < 18_000,
+                    "worker join should finish soon after disconnect (sessionStop + anyOf path)");
+        } finally {
+            client.disconnect();
+            worker.join(Duration.ofSeconds(5).toMillis());
+        }
+    }
 
     @Test
     @EnabledIfEnvironmentVariable(named = "PIRATETOK_LIVE_TEST_USER", matches = ".+")
