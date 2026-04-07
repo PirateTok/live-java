@@ -16,7 +16,7 @@ class WssUrlTest {
     void build_schemeHostPathAndRoomId() {
         String cdn = "webcast-ws.eu.tiktok.com";
         String roomId = "7123456789012345678";
-        String url = WssUrl.build(cdn, roomId);
+        String url = WssUrl.build(cdn, roomId, "en", "US");
 
         assertTrue(url.startsWith("wss://" + cdn + "/webcast/im/ws_proxy/ws_reuse_supplement/?"));
 
@@ -31,7 +31,7 @@ class WssUrlTest {
     @Test
     void build_encodesSpecialCharactersInRoomId() {
         String roomId = "id+with spaces";
-        String url = WssUrl.build("example.test", roomId);
+        String url = WssUrl.build("example.test", roomId, "en", "US");
         Map<String, String> q = parseQuery(url.substring(url.indexOf('?') + 1));
         assertEquals(roomId, q.get("room_id"));
     }
