@@ -1,10 +1,11 @@
-package com.piratetok.live.http;
+package com.piratetok.live.helpers;
 
 import com.piratetok.live.Errors.PirateTokException;
 import com.piratetok.live.Errors.ProfileErrorException;
 import com.piratetok.live.Errors.ProfileNotFoundException;
 import com.piratetok.live.Errors.ProfilePrivateException;
 import com.piratetok.live.auth.Ttwid;
+import com.piratetok.live.http.Sigi;
 import com.piratetok.live.http.Sigi.SigiProfile;
 
 import java.io.IOException;

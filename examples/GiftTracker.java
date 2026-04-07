@@ -1,5 +1,7 @@
 import com.piratetok.live.PirateTokClient;
 import com.piratetok.live.events.EventType;
+import com.piratetok.live.helpers.GiftStreakTracker;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -13,19 +15,21 @@ public class GiftTracker {
         if (args.length < 1) { System.out.println("usage: GiftTracker <username>"); return; }
         var client = new PirateTokClient(args[0]).cdnEU();
         var gifts = new ConcurrentHashMap<String, GiftStats>();
+        var tracker = new GiftStreakTracker();
 
         client.on(EventType.CONNECTED, e -> System.out.println("tracking gifts in room " + e.data().get("roomId")));
 
         client.on(EventType.GIFT, e -> {
             @SuppressWarnings("unchecked") var user = (Map<String,Object>) e.data().getOrDefault("user", Map.of());
-            @SuppressWarnings("unchecked") var gift = (Map<String,Object>) e.data().getOrDefault("gift", Map.of());
             String nick = String.valueOf(user.getOrDefault("uniqueId", "?"));
-            long diamonds = ((Number) gift.getOrDefault("diamondCount", 0)).longValue();
-            long count = ((Number) e.data().getOrDefault("repeatCount", 1)).longValue();
+            var enriched = tracker.process(e.data());
             var stats = gifts.computeIfAbsent(nick, k -> new GiftStats());
-            stats.count().addAndGet(count);
-            stats.diamonds().addAndGet(diamonds * count);
-            System.out.println("  " + nick + " -> " + gift.getOrDefault("name", "?") + " x" + count);
+            stats.count().addAndGet(enriched.eventGiftCount());
+            stats.diamonds().addAndGet(enriched.eventDiamondCount());
+            if (enriched.eventGiftCount() > 0) {
+                System.out.println("  " + nick + " -> +" + enriched.eventGiftCount()
+                    + " gifts (+" + enriched.eventDiamondCount() + " diamonds)");
+            }
         });
 
         client.on(EventType.DISCONNECTED, e -> {
