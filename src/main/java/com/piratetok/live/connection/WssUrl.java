@@ -9,8 +9,9 @@ import java.util.Map;
 
 public final class WssUrl {
 
-    public static String build(String cdnHost, String roomId) {
+    public static String build(String cdnHost, String roomId, String language, String region) {
         String lastRtt = String.format("%.3f", 100 + Math.random() * 100);
+        String browserLang = language + "-" + region;
 
         Map<String, String> params = new LinkedHashMap<>();
         params.put("version_code", "180800");
@@ -18,7 +19,7 @@ public final class WssUrl {
         params.put("cookie_enabled", "true");
         params.put("screen_width", "1920");
         params.put("screen_height", "1080");
-        params.put("browser_language", "en-US");
+        params.put("browser_language", browserLang);
         params.put("browser_platform", "Linux x86_64");
         params.put("browser_name", "Mozilla");
         params.put("browser_version", "5.0 (X11)");
@@ -28,11 +29,11 @@ public final class WssUrl {
         params.put("sup_ws_ds_opt", "1");
         params.put("update_version_code", "2.0.0");
         params.put("compress", "gzip");
-        params.put("webcast_language", "en");
+        params.put("webcast_language", language);
         params.put("ws_direct", "1");
         params.put("aid", "1988");
         params.put("live_id", "12");
-        params.put("app_language", "en");
+        params.put("app_language", language);
         params.put("client_enter", "1");
         params.put("room_id", roomId);
         params.put("identity", "audience");

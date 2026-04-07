@@ -1,13 +1,15 @@
 package com.piratetok.live.http;
 
+import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * User agent rotation pool and system timezone detection.
+ * User agent rotation pool, system timezone detection, and locale detection.
  *
  * <p>Each reconnect picks a random UA from the pool to reduce DEVICE_BLOCKED
- * risk. The timezone is detected from the JVM's default TimeZone.</p>
+ * risk. Timezone is detected from JVM default. Locale is detected from
+ * {@link Locale#getDefault()}.</p>
  */
 public final class UserAgent {
 
@@ -21,21 +23,14 @@ public final class UserAgent {
     };
 
     private static final String FALLBACK_TZ = "UTC";
+    private static final String FALLBACK_LANG = "en";
+    private static final String FALLBACK_REGION = "US";
 
-    /**
-     * Pick a random user agent from the built-in pool.
-     */
     public static String randomUa() {
         int idx = ThreadLocalRandom.current().nextInt(USER_AGENTS.length);
         return USER_AGENTS[idx];
     }
 
-    /**
-     * Detect the system's IANA timezone name.
-     *
-     * <p>Uses {@link TimeZone#getDefault()} and falls back to {@code "UTC"}
-     * if the ID is null or empty.</p>
-     */
     public static String systemTimezone() {
         String tz = TimeZone.getDefault().getID();
         if (tz == null || tz.isEmpty()) {
@@ -43,6 +38,22 @@ public final class UserAgent {
         }
         return tz;
     }
+
+    /** Returns {@code [language, region]} from system locale, e.g. {@code ["ro", "RO"]}. */
+    public static String[] systemLocale() {
+        Locale loc = Locale.getDefault();
+        String lang = loc.getLanguage();
+        String region = loc.getCountry();
+        if (lang == null || lang.length() < 2) lang = FALLBACK_LANG;
+        if (region == null || region.length() < 2) region = FALLBACK_REGION;
+        return new String[] { lang.toLowerCase(Locale.ROOT), region.toUpperCase(Locale.ROOT) };
+    }
+
+    /** System language code, e.g. {@code "en"}, {@code "ro"}. */
+    public static String systemLanguage() { return systemLocale()[0]; }
+
+    /** System region/country code, e.g. {@code "US"}, {@code "RO"}. */
+    public static String systemRegion() { return systemLocale()[1]; }
 
     private UserAgent() {}
 }

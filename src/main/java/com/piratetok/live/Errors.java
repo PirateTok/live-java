@@ -51,5 +51,35 @@ public final class Errors {
         }
     }
 
+    public static class ProfilePrivateException extends PirateTokException {
+        public final String username;
+        public ProfilePrivateException(String username) {
+            super("profile is private: @" + username);
+            this.username = username;
+        }
+    }
+
+    public static class ProfileNotFoundException extends PirateTokException {
+        public final String username;
+        public ProfileNotFoundException(String username) {
+            super("profile not found: @" + username);
+            this.username = username;
+        }
+    }
+
+    public static class ProfileScrapeException extends PirateTokException {
+        public ProfileScrapeException(String reason) {
+            super("failed to scrape profile: " + reason);
+        }
+    }
+
+    public static class ProfileErrorException extends PirateTokException {
+        public final long code;
+        public ProfileErrorException(long code) {
+            super("profile fetch error: statusCode=" + code);
+            this.code = code;
+        }
+    }
+
     private Errors() {}
 }

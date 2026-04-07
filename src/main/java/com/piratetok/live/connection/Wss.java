@@ -34,23 +34,9 @@ public final class Wss {
     private static final Logger log = Logger.getLogger(Wss.class.getName());
     private static final long HEARTBEAT_MS = 10_000;
 
-    /**
-     * Connect to the TikTok Live WSS endpoint.
-     *
-     * @param wssUrl        full WebSocket URL
-     * @param ttwid         ttwid cookie value
-     * @param roomId        room ID string
-     * @param staleTimeout  close if no data for this duration
-     * @param userAgent     user agent string, or {@code null} for random
-     * @param cookies       extra cookies to append alongside ttwid, or {@code null}
-     * @param onEvent       event callback
-     * @param onError       error callback
-     * @param stop          atomic flag to signal disconnect
-     * @throws DeviceBlockedException if handshake returns DEVICE_BLOCKED
-     */
     public static void connect(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
-            String userAgent, String cookies,
+            String userAgent, String cookies, String acceptLanguage,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop
     ) throws Exception {
@@ -124,7 +110,7 @@ public final class Wss {
                     .header("User-Agent", ua)
                     .header("Origin", "https://www.tiktok.com")
                     .header("Referer", "https://www.tiktok.com/")
-                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Accept-Language", acceptLanguage)
                     .header("Cache-Control", "no-cache")
                     .buildAsync(URI.create(wssUrl), listener)
                     .join();
