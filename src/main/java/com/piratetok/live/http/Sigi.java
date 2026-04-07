@@ -6,6 +6,8 @@ import com.piratetok.live.Errors.ProfilePrivateException;
 import com.piratetok.live.Errors.ProfileScrapeException;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -29,7 +31,7 @@ public final class Sigi {
     ) {}
 
     public static SigiProfile scrape(String username, String ttwid, Duration timeout,
-            String userAgent, String cookies) throws IOException, InterruptedException {
+            String userAgent, String cookies, String proxy) throws IOException, InterruptedException {
         String clean = username.strip().replaceFirst("^@", "").toLowerCase(Locale.ROOT);
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
 
@@ -45,7 +47,12 @@ public final class Sigi {
             .build();
 
         String html;
-        try (var client = HttpClient.newHttpClient()) {
+        var clientBuilder = HttpClient.newBuilder();
+        if (proxy != null && !proxy.isEmpty()) {
+            URI proxyUri = URI.create(proxy);
+            clientBuilder.proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())));
+        }
+        try (var client = clientBuilder.build()) {
             html = client.send(req, HttpResponse.BodyHandlers.ofString()).body();
         }
 
