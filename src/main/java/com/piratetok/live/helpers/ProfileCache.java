@@ -66,7 +66,7 @@ public final class ProfileCache {
         ensureTtwid();
 
         try {
-            SigiProfile profile = Sigi.scrape(key, ttwid, SCRAPE_TIMEOUT, userAgent, cookies);
+            SigiProfile profile = Sigi.scrape(key, ttwid, SCRAPE_TIMEOUT, userAgent, cookies, proxy);
             entries.put(key, new CacheEntry.Ok(profile, Instant.now()));
             return profile;
         } catch (ProfilePrivateException | ProfileNotFoundException | ProfileErrorException e) {
@@ -99,7 +99,7 @@ public final class ProfileCache {
 
     private void ensureTtwid() throws IOException, InterruptedException {
         if (ttwid != null) return;
-        ttwid = Ttwid.fetch(TTWID_TIMEOUT);
+        ttwid = Ttwid.fetch(TTWID_TIMEOUT, userAgent, proxy);
     }
 
     private static String normalizeKey(String username) {
