@@ -26,11 +26,19 @@ public final class Api {
 
     public static RoomIdResult checkOnline(String username, Duration timeout)
             throws IOException, InterruptedException {
+        return checkOnline(username, timeout, null, null);
+    }
+
+    public static RoomIdResult checkOnline(String username, Duration timeout, String language, String region)
+            throws IOException, InterruptedException {
         String clean = username.strip().replaceFirst("^@", "");
+        String[] loc = resolveLocale(language, region);
+        String lang = loc[0];
+        String reg = loc[1];
         String params = encodeParams(Map.of(
             "aid", "1988", "app_name", "tiktok_web", "device_platform", "web_pc",
-            "app_language", "en", "browser_language", "en-US", "user_is_login", "false",
-            "sourceType", "54", "staleTime", "600000", "uniqueId", clean
+            "app_language", lang, "browser_language", lang + "-" + reg, "region", reg,
+            "user_is_login", "false", "sourceType", "54", "staleTime", "600000", "uniqueId", clean
         ));
         String url = "https://www.tiktok.com/api-live/user/room?" + params;
 
@@ -60,14 +68,22 @@ public final class Api {
 
     public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies)
             throws IOException, InterruptedException {
+        return fetchRoomInfo(roomId, timeout, cookies, null, null);
+    }
+
+    public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies,
+            String language, String region) throws IOException, InterruptedException {
+        String[] loc = resolveLocale(language, region);
+        String lang = loc[0];
+        String reg = loc[1];
         String params = encodeParams(Map.ofEntries(
             Map.entry("aid", "1988"), Map.entry("app_name", "tiktok_web"),
-            Map.entry("device_platform", "web_pc"), Map.entry("app_language", "en"),
-            Map.entry("browser_language", "en-US"), Map.entry("browser_name", "Mozilla"),
+            Map.entry("device_platform", "web_pc"), Map.entry("app_language", lang),
+            Map.entry("browser_language", lang + "-" + reg), Map.entry("browser_name", "Mozilla"),
             Map.entry("browser_online", "true"), Map.entry("browser_platform", "Linux x86_64"),
             Map.entry("cookie_enabled", "true"), Map.entry("screen_height", "1080"),
             Map.entry("screen_width", "1920"), Map.entry("tz_name", UserAgent.systemTimezone()),
-            Map.entry("webcast_language", "en"), Map.entry("room_id", roomId)
+            Map.entry("webcast_language", lang), Map.entry("room_id", roomId)
         ));
         String url = "https://webcast.tiktok.com/webcast/room/info/?" + params;
 
@@ -149,6 +165,13 @@ public final class Api {
               .append(URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
         }
         return sb.toString();
+    }
+
+    private static String[] resolveLocale(String language, String region) {
+        String[] sys = UserAgent.systemLocale();
+        String lang = (language != null && !language.isEmpty()) ? language : sys[0];
+        String reg = (region != null && !region.isEmpty()) ? region : sys[1];
+        return new String[] { lang, reg };
     }
 
     private Api() {}

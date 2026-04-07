@@ -39,7 +39,7 @@ public final class Sigi {
             .uri(URI.create("https://www.tiktok.com/@" + clean))
             .header("User-Agent", ua)
             .header("Cookie", cookieHeader)
-            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Accept-Language", acceptLanguage())
             .timeout(timeout)
             .GET()
             .build();
@@ -147,6 +147,11 @@ public final class Sigi {
         Object v = m.get(key);
         if (v instanceof Boolean b) return b;
         return false;
+    }
+
+    private static String acceptLanguage() {
+        String[] loc = UserAgent.systemLocale();
+        return loc[0] + "-" + loc[1] + "," + loc[0] + ";q=0.9";
     }
 
     private Sigi() {}
