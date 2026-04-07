@@ -12,5 +12,5 @@ clean:
 	rm -rf $(OUT)
 
 discipline:
-	javac -d $(OUT) --release 25 src/main/java/discipline/Scanner.java
+	javac -d $(OUT) --release 25 discipline/Scanner.java
 	java -cp $(OUT) discipline.Scanner src/main/java
