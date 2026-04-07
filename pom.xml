@@ -6,7 +6,7 @@
 
     <groupId>com.piratetok</groupId>
     <artifactId>live</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.3</version>
     <packaging>jar</packaging>
     <name>PirateTok Live (Java)</name>
     <description>TikTok Live client for Java — real-time events; uses Jackson for JSON parsing.</description>
