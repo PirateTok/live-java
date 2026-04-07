@@ -46,6 +46,8 @@ public final class PirateTokClient {
     private Duration staleTimeout = Duration.ofSeconds(DEFAULT_STALE_TIMEOUT_SECONDS);
     private String userAgent;
     private String cookies;
+    private String language;
+    private String region;
     private final AtomicBoolean stop = new AtomicBoolean(false);
     /** Current WSS session stop signal; replaced each reconnect attempt. */
     private final AtomicReference<CompletableFuture<Void>> activeSessionStop = new AtomicReference<>();
@@ -53,6 +55,9 @@ public final class PirateTokClient {
 
     public PirateTokClient(String username) {
         this.username = username;
+        String[] locale = UserAgent.systemLocale();
+        this.language = locale[0];
+        this.region = locale[1];
     }
 
     public PirateTokClient cdnEU() { cdnHost = "webcast-ws.eu.tiktok.com"; return this; }
@@ -61,26 +66,20 @@ public final class PirateTokClient {
     public PirateTokClient timeout(Duration t) { timeout = t; return this; }
     public PirateTokClient maxRetries(int n) { maxRetries = n; return this; }
     public PirateTokClient staleTimeout(Duration t) { staleTimeout = t; return this; }
-
-    /**
-     * Override the user agent for all requests (HTTP + WSS).
-     *
-     * <p>When not set, a random UA from the built-in pool is picked on each
-     * reconnect attempt. This is recommended for reducing DEVICE_BLOCKED risk.
-     * Only set this if you have a specific UA you want to use.</p>
-     */
     public PirateTokClient userAgent(String ua) { this.userAgent = ua; return this; }
-
-    /**
-     * Set session cookies for the WSS connection.
-     *
-     * <p>These are appended alongside the ttwid cookie. Only needed if you have
-     * a specific reason to pass session cookies to the WebSocket handshake.</p>
-     *
-     * <p>For fetching room info on 18+ rooms, pass cookies directly to
-     * {@link #fetchRoomInfo(String, Duration, String)} instead.</p>
-     */
     public PirateTokClient cookies(String cookies) { this.cookies = cookies; return this; }
+
+    /** Override detected language code for API requests and headers. */
+    public PirateTokClient language(String lang) { this.language = lang; return this; }
+
+    /** Override detected region/country code for API requests. */
+    public PirateTokClient region(String region) { this.region = region; return this; }
+
+    /** Returns browser_language value, e.g. {@code "en-US"}. */
+    public String browserLanguage() { return language + "-" + region; }
+
+    /** Returns Accept-Language header value, e.g. {@code "en-US,en;q=0.9"}. */
+    public String acceptLanguage() { return language + "-" + region + "," + language + ";q=0.9"; }
 
     public PirateTokClient on(String eventType, Consumer<TikTokEvent> listener) {
         listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);
@@ -117,12 +116,12 @@ public final class PirateTokClient {
             throws Exception {
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
         String ttwid = Ttwid.fetch(timeout, ua);
-        String wssUrl = WssUrl.build(cdnHost, room.roomId());
+        String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region);
         if (stop.get()) {
             return SessionEnd.STOPPED;
         }
         try {
-            Wss.connect(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies,
+            Wss.connect(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies, acceptLanguage(),
                 this::emit,
                 e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
                 stop,
@@ -154,8 +153,8 @@ public final class PirateTokClient {
             if (stop.get()) {
                 return CompletableFuture.completedFuture(SessionEnd.STOPPED);
             }
-            String wssUrl = WssUrl.build(cdnHost, room.roomId());
-            return Wss.connectAsync(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies,
+            String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region);
+            return Wss.connectAsync(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies, acceptLanguage(),
                     this::emit,
                     e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
                     stop,

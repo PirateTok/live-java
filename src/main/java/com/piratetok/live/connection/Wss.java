@@ -151,21 +151,22 @@ public final class Wss {
      * The handshake still runs on the JDK HTTP client executor; use {@link #connect} if you need
      * a blocking API.</p>
      *
-     * @param wssUrl        full WebSocket URL
-     * @param ttwid         ttwid cookie value
-     * @param roomId        room ID string
-     * @param staleTimeout  close if no data for this duration
-     * @param userAgent     user agent string, or {@code null} for random
-     * @param cookies       extra cookies to append alongside ttwid, or {@code null}
-     * @param onEvent       event callback
-     * @param onError       error callback
-     * @param stop          atomic flag to signal disconnect
-     * @param sessionStop   completes when this session should end (e.g. user disconnect); new instance per attempt
+     * @param wssUrl         full WebSocket URL
+     * @param ttwid          ttwid cookie value
+     * @param roomId         room ID string
+     * @param staleTimeout   close if no data for this duration
+     * @param userAgent      user agent string, or {@code null} for random
+     * @param cookies        extra cookies to append alongside ttwid, or {@code null}
+     * @param acceptLanguage Accept-Language header value (e.g. {@code "en-US,en;q=0.9"})
+     * @param onEvent        event callback
+     * @param onError        error callback
+     * @param stop           atomic flag to signal disconnect
+     * @param sessionStop    completes when this session should end (e.g. user disconnect); new instance per attempt
      * @return completes normally when the session ends; completes exceptionally on handshake or socket errors
      */
     public static CompletableFuture<Void> connectAsync(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
-            String userAgent, String cookies,
+            String userAgent, String cookies, String acceptLanguage,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
             CompletableFuture<Void> sessionStop
@@ -265,7 +266,7 @@ public final class Wss {
                 .header("User-Agent", ua)
                 .header("Origin", "https://www.tiktok.com")
                 .header("Referer", "https://www.tiktok.com/")
-                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Accept-Language", acceptLanguage)
                 .header("Cache-Control", "no-cache")
                 .buildAsync(URI.create(wssUrl), listener)
                 .handle((ws, ex) -> {
@@ -322,27 +323,28 @@ public final class Wss {
     /**
      * Connect to the TikTok Live WSS endpoint (blocks the calling thread until the session ends).
      *
-     * @param wssUrl        full WebSocket URL
-     * @param ttwid         ttwid cookie value
-     * @param roomId        room ID string
-     * @param staleTimeout  close if no data for this duration
-     * @param userAgent     user agent string, or {@code null} for random
-     * @param cookies       extra cookies to append alongside ttwid, or {@code null}
-     * @param onEvent       event callback
-     * @param onError       error callback
-     * @param stop          atomic flag to signal disconnect
-     * @param sessionStop   completes when this session should end (e.g. user disconnect); new instance per attempt
+     * @param wssUrl         full WebSocket URL
+     * @param ttwid          ttwid cookie value
+     * @param roomId         room ID string
+     * @param staleTimeout   close if no data for this duration
+     * @param userAgent      user agent string, or {@code null} for random
+     * @param cookies        extra cookies to append alongside ttwid, or {@code null}
+     * @param acceptLanguage Accept-Language header value (e.g. {@code "en-US,en;q=0.9"})
+     * @param onEvent        event callback
+     * @param onError        error callback
+     * @param stop           atomic flag to signal disconnect
+     * @param sessionStop    completes when this session should end (e.g. user disconnect); new instance per attempt
      * @throws DeviceBlockedException if handshake returns DEVICE_BLOCKED
      */
     public static void connect(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
-            String userAgent, String cookies,
+            String userAgent, String cookies, String acceptLanguage,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
             CompletableFuture<Void> sessionStop
     ) throws Exception {
         try {
-            connectAsync(wssUrl, ttwid, roomId, staleTimeout, userAgent, cookies,
+            connectAsync(wssUrl, ttwid, roomId, staleTimeout, userAgent, cookies, acceptLanguage,
                     onEvent, onError, stop, sessionStop).join();
         } catch (CompletionException ce) {
             Throwable c = ce.getCause();
