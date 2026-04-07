@@ -1,6 +1,6 @@
 import com.piratetok.live.Errors.ProfilePrivateException;
 import com.piratetok.live.Errors.ProfileNotFoundException;
-import com.piratetok.live.http.ProfileCache;
+import com.piratetok.live.helpers.ProfileCache;
 
 public class ProfileLookup {
 
