@@ -180,7 +180,7 @@ public final class PirateTokClient {
      * Connect synchronously (blocks the calling thread until disconnect or retry budget exhausted).
      */
     public String connect() throws Exception {
-        var room = Api.checkOnline(username, timeout);
+        var room = Api.checkOnline(username, timeout, language, region);
         stop.set(false);
         emit(new TikTokEvent(EventType.CONNECTED, Map.of("roomId", room.roomId()), room.roomId()));
 
