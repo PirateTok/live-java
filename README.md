@@ -10,10 +10,8 @@ Connect to any TikTok Live stream and receive real-time events in Java. No signi
 import com.piratetok.live.PirateTokClient;
 import com.piratetok.live.events.EventType;
 
-// Create client — zero external dependencies, hand-written protobuf codec
 var client = new PirateTokClient("username_here");
 
-// Register event handlers — data arrives as decoded Maps
 client.on(EventType.CHAT, e -> {
     var user = (Map<String,Object>) e.data().getOrDefault("user", Map.of());
     System.out.println("[chat] " + user.getOrDefault("uniqueId", "?") + ": " + e.data().get("content"));
@@ -36,23 +34,15 @@ client.connect();
 
 ## Install
 
-Requires Java >= 25. No external runtime dependencies.
+Requires Java >= 25. Single runtime dependency: Jackson (`jackson-databind`).
 
-**Maven** (recommended):
+**Maven**:
 
 ```
 mvn -q package
 ```
 
-The JAR is `target/live-0.1.0-SNAPSHOT.jar`. Compiled classes (including examples) are under `target/classes`.
-
-**Make** (plain `javac`, no Maven):
-
-```
-make build
-```
-
-Output directory is `out/`.
+The JAR is `target/live-0.1.3.jar`.
 
 ## Other languages
 
@@ -73,20 +63,45 @@ Output directory is `out/`.
 ## Features
 
 - **Zero signing dependency** -- no API keys, no signing server, no external auth
-- **Zero external dependencies** -- hand-written protobuf codec, raw `java.net.http` WebSocket
+- **Hand-written protobuf codec** -- no `.proto` files, no codegen, no protobuf-java
+- **Jackson for JSON** -- TikTok API responses parsed via Jackson with input limits
 - **64 decoded event types** -- chat, gifts, likes, joins, follows, shares, battles, polls, and more
+- **Async API** -- `connectAsync()` for non-blocking multi-room connections
 - **Auto-reconnection** -- stale detection, exponential backoff, self-healing auth
+- **DEVICE_BLOCKED handling** -- detects handshake block, rotates ttwid + UA, retries
 - **Enriched User data** -- badges, gifter level, moderator status, follow info, fan club
 - **Sub-routed convenience events** -- `follow`, `share`, `join`, `liveEnded`
+- **System locale detection** -- language/region auto-detected, threaded into all API calls
+- **Input limits** -- gzip bomb protection, WSS frame caps, proto nesting/field limits
+- **Helpers** -- `GiftStreakTracker`, `LikeAccumulator`, `ProfileCache` (stateful, optional)
 
 ## Configuration
 
 ```java
 var client = new PirateTokClient("username_here")
-    .cdnEU()
-    .timeout(Duration.ofSeconds(15))
-    .maxRetries(10)
-    .staleTimeout(Duration.ofSeconds(90));
+    .cdnEU()                              // EU CDN (default: global)
+    .timeout(Duration.ofSeconds(15))      // HTTP timeout
+    .maxRetries(10)                       // reconnect attempts
+    .staleTimeout(Duration.ofSeconds(90)) // no-data timeout
+    .language("en")                       // override detected language
+    .region("US")                         // override detected region
+    .userAgent("custom UA")               // override random UA
+    .cookies("sessionid=abc; sid_tt=abc");// session cookies (18+ room info only)
+```
+
+## Async (non-blocking)
+
+```java
+// Single stream
+CompletableFuture<String> session = client.connectAsync();
+
+// Multiple streams on virtual threads
+try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    var futures = usernames.stream()
+        .map(u -> new PirateTokClient(u).connectAsync(executor))
+        .toList();
+    // ...
+}
 ```
 
 ## Room info (optional, separate call)
@@ -108,49 +123,53 @@ var info = Api.fetchRoomInfo(result.roomId(), Duration.ofSeconds(10),
 ## How it works
 
 1. Resolves username to room ID via TikTok JSON API
-2. Authenticates and opens a direct WSS connection via `java.net.http.WebSocket`
-3. Sends protobuf heartbeats every 10s to keep alive
-4. Decodes protobuf event stream via hand-written codec
-5. Auto-reconnects on stale/dropped connections with fresh credentials
-
-All protobuf encoding/decoding is hand-written -- no `.proto` files, no codegen, no protobuf-java dependency.
+2. Fetches a fresh `ttwid` cookie (unauthenticated GET)
+3. Opens a direct WSS connection via `java.net.http.WebSocket`
+4. Sends protobuf heartbeats every 10s to keep alive
+5. Decodes protobuf event stream via hand-written codec
+6. Auto-reconnects on stale/dropped connections with fresh ttwid + rotated UA
+7. On `DEVICE_BLOCKED` handshake response, retries with 2s delay
 
 ## Examples
 
 ```bash
 mvn -q package
-java -cp target/classes BasicChat <username>       # connect + print chat events
-java -cp target/classes OnlineCheck <username>     # check if user is live
-java -cp target/classes StreamInfo <username>      # fetch room metadata + stream URLs
-java -cp target/classes GiftTracker <username>     # track gifts with diamond totals
+java -cp target/classes:target/dependency/* BasicChat <username>
+java -cp target/classes:target/dependency/* OnlineCheck <username>
+java -cp target/classes:target/dependency/* StreamInfo <username>
+java -cp target/classes:target/dependency/* GiftTracker <username>
+java -cp target/classes:target/dependency/* GiftStreak <username>
+java -cp target/classes:target/dependency/* LikeDebug <username>
+java -cp target/classes:target/dependency/* ProfileLookup <username>
 ```
 
-With **Make** instead of Maven, use `make build` and `-cp out`.
+## Integration tests
 
-## Integration tests (real TikTok API)
-
-Tests live under `src/test/java` and call TikTok over the network. They are **skipped unless environment variables are set**, so `mvn test` succeeds in CI without secrets.
+Tests call TikTok over the network. **Skipped unless environment variables are set**, so `mvn test` stays green in CI.
 
 | Variable | Required | Purpose |
 |:---------|:---------|:--------|
 | `PIRATETOK_LIVE_TEST_USER` | for HTTP + WSS tests | Username that is **live** for the whole run |
-| `PIRATETOK_LIVE_TEST_OFFLINE_USER` | optional | Username that must **not** be live (`HostNotOnlineException`) |
+| `PIRATETOK_LIVE_TEST_OFFLINE_USER` | optional | Username that must **not** be live |
 | `PIRATETOK_LIVE_TEST_COOKIES` | optional | Cookie header for `fetchRoomInfo` on age-restricted rooms |
-| `PIRATETOK_LIVE_TEST_HTTP` | optional (`1`, `true`, or `yes`) | Enables HTTP probe for `UserNotFoundException` (fixed synthetic username; no live stream) |
-
-Examples:
+| `PIRATETOK_LIVE_TEST_HTTP` | optional (`1`) | Enables HTTP probe with synthetic username |
+| `PIRATETOK_LIVE_TEST_USERS` | optional | Comma-separated usernames for multi-stream load test |
 
 ```bash
-set PIRATETOK_LIVE_TEST_USER=some_live_creator
-mvn test
+PIRATETOK_LIVE_TEST_USER=some_live_creator mvn test
 ```
 
-Expect occasional failures from rate limits, blocks, or the stream going offline.
+## Scheduler tuning
+
+The shared WSS scheduler handles heartbeats and stale checks for all connections. Default pool size is 4 threads.
+
+```bash
+export PIRATETOK_WSS_SCHEDULER_THREADS=64  # for high connection counts
+```
 
 ## Known gaps
 
 - Proxy transport support is not wired yet.
-- Explicit `DEVICE_BLOCKED` handshake handling is not implemented yet.
 
 ## License
 
