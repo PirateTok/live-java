@@ -17,6 +17,10 @@ import java.util.Map;
 
 public final class Api {
 
+    private static final long STATUS_USER_NOT_FOUND = 19881007;
+    private static final long STATUS_AGE_RESTRICTED = 4003110;
+    private static final int LIVE_STATUS_ON_AIR = 2;
+
     public record RoomIdResult(String roomId) {}
 
     public record StreamUrls(String flvOrigin, String flvHd, String flvSd, String flvLd, String flvAudio) {}
@@ -46,7 +50,7 @@ public final class Api {
         Map<String, Object> result = Json.parseObject(body);
 
         long statusCode = longVal(result, "statusCode");
-        if (statusCode == 19881007) {
+        if (statusCode == STATUS_USER_NOT_FOUND) {
             throw new UserNotFoundException(clean);
         }
         if (statusCode != 0) throw new TikTokApiException(statusCode);
@@ -63,7 +67,7 @@ public final class Api {
 
         long liveStatus = longVal(liveRoom, "status");
         long userStatus = longVal(user, "status");
-        if (liveStatus != 2 && userStatus != 2) {
+        if (liveStatus != LIVE_STATUS_ON_AIR && userStatus != LIVE_STATUS_ON_AIR) {
             throw new HostNotOnlineException(clean);
         }
 
@@ -95,7 +99,7 @@ public final class Api {
         Map<String, Object> result = Json.parseObject(body);
 
         long sc = longVal(result, "status_code");
-        if (sc == 4003110) {
+        if (sc == STATUS_AGE_RESTRICTED) {
             throw new AgeRestrictedException();
         }
         if (sc != 0) throw new TikTokApiException(sc);
