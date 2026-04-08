@@ -243,7 +243,7 @@ public final class PirateTokClient {
         return CompletableFuture
                 .supplyAsync(() -> {
                     try {
-                        return Api.checkOnline(username, timeout);
+                        return Api.checkOnline(username, timeout, language, region);
                     } catch (IOException | InterruptedException e) {
                         if (e instanceof InterruptedException) {
                             Thread.currentThread().interrupt();

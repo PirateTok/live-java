@@ -47,13 +47,15 @@ public final class Sigi {
             .build();
 
         String html;
-        var clientBuilder = HttpClient.newBuilder();
         if (proxy != null && !proxy.isEmpty()) {
             URI proxyUri = URI.create(proxy);
-            clientBuilder.proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())));
-        }
-        try (var client = clientBuilder.build()) {
-            html = client.send(req, HttpResponse.BodyHandlers.ofString()).body();
+            try (var client = HttpClient.newBuilder()
+                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
+                    .build()) {
+                html = client.send(req, HttpResponse.BodyHandlers.ofString()).body();
+            }
+        } else {
+            html = SharedHttpClient.instance().send(req, HttpResponse.BodyHandlers.ofString()).body();
         }
 
         String jsonStr = extractSigiJson(html);

@@ -56,7 +56,6 @@ public final class Wss {
     public static final String ENV_WSS_SCHEDULER_THREADS = "PIRATETOK_WSS_SCHEDULER_THREADS";
 
     private static final int DEFAULT_WSS_SCHEDULER_THREADS = 4;
-    private static final int MAX_WSS_SCHEDULER_THREADS = 10_000;
 
     /** RFC 6455 close code 1002 (protocol error); JDK {@code WebSocket} has no named constant for it. */
     private static final int WS_CLOSE_PROTOCOL_ERROR = 1002;
@@ -81,18 +80,13 @@ public final class Wss {
         try {
             int n = Integer.parseInt(raw.strip());
             if (n < 1) {
-                log.warning(ENV_WSS_SCHEDULER_THREADS + "=" + raw + " invalid; using default "
+                log.fine(ENV_WSS_SCHEDULER_THREADS + "=" + raw + " invalid; using default "
                         + DEFAULT_WSS_SCHEDULER_THREADS);
                 return DEFAULT_WSS_SCHEDULER_THREADS;
             }
-            if (n > MAX_WSS_SCHEDULER_THREADS) {
-                log.warning(ENV_WSS_SCHEDULER_THREADS + "=" + n + " exceeds max " + MAX_WSS_SCHEDULER_THREADS
-                        + "; capping");
-                return MAX_WSS_SCHEDULER_THREADS;
-            }
             return n;
         } catch (NumberFormatException e) {
-            log.warning(ENV_WSS_SCHEDULER_THREADS + "=" + raw + " invalid; using default "
+            log.fine(ENV_WSS_SCHEDULER_THREADS + "=" + raw + " invalid; using default "
                     + DEFAULT_WSS_SCHEDULER_THREADS);
             return DEFAULT_WSS_SCHEDULER_THREADS;
         }
@@ -107,7 +101,7 @@ public final class Wss {
         };
         var ex = new ScheduledThreadPoolExecutor(poolSize, tf);
         ex.setRemoveOnCancelPolicy(true);
-        log.info("Wss scheduler: " + poolSize + " threads (" + ENV_WSS_SCHEDULER_THREADS + ")");
+        log.fine("Wss scheduler: " + poolSize + " threads");
         return ex;
     }
 
