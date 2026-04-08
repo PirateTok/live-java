@@ -35,7 +35,7 @@ import java.util.logging.Logger;
  * TikTok Live WebSocket client.
  *
  * <p>Scheduler pool size: environment variable {@link #ENV_WSS_SCHEDULER_THREADS}
- * ({@code PIRATETOK_WSS_SCHEDULER_THREADS}): positive integer, default {@code 4}, max {@code 10000}.
+ * ({@code PIRATETOK_WSS_SCHEDULER_THREADS}): positive integer, default {@code 4}, no cap.
  * Used for periodic per-connection maintenance (single timer: heartbeat + stale check).</p>
  */
 public final class Wss {
