@@ -1,13 +1,21 @@
 package com.piratetok.live.connection;
 
+import com.piratetok.live.Limits;
 import com.piratetok.live.proto.Proto;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.zip.GZIPInputStream;
 
 public final class Frames {
+
+    private static final int GZIP_MAGIC_BYTE1 = 0x1F;
+    private static final int GZIP_MAGIC_BYTE2 = 0x8B;
+
+    /** TikTok enter-room inner payload: field 4 (client / scene type for web audience). */
+    private static final long ENTER_ROOM_CLIENT_TYPE = 12L;
 
     public static byte[] buildHeartbeat(String roomId) {
         byte[] hb = Proto.encode(w -> w.writeUint64(1, Long.parseLong(roomId)));
@@ -21,7 +29,7 @@ public final class Frames {
     public static byte[] buildEnterRoom(String roomId) {
         byte[] enter = Proto.encode(w -> {
             w.writeInt64(1, Long.parseLong(roomId));
-            w.writeInt64(4, 12);
+            w.writeInt64(4, ENTER_ROOM_CLIENT_TYPE);
             w.writeString(5, "audience");
             w.writeString(9, "0");
         });
@@ -42,15 +50,50 @@ public final class Frames {
     }
 
     public static byte[] decompressIfGzipped(byte[] data) throws IOException {
-        if (data.length >= 2 && (data[0] & 0xFF) == 0x1F && (data[1] & 0xFF) == 0x8B) {
+        if (data.length >= 2
+                && (data[0] & 0xFF) == GZIP_MAGIC_BYTE1
+                && (data[1] & 0xFF) == GZIP_MAGIC_BYTE2) {
             var bais = new ByteArrayInputStream(data);
             var gis = new GZIPInputStream(bais);
-            var baos = new ByteArrayOutputStream();
-            gis.transferTo(baos);
-            gis.close();
-            return baos.toByteArray();
+            try (gis) {
+                var bounded = new BoundedByteArrayOutputStream(Limits.MAX_GZIP_DECOMPRESSED_BYTES);
+                gis.transferTo(bounded);
+                return bounded.toByteArray();
+            }
         }
         return data;
+    }
+
+    private static final class BoundedByteArrayOutputStream extends OutputStream {
+        private final ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        private final int maxBytes;
+
+        BoundedByteArrayOutputStream(int maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            if (buf.size() + 1 > maxBytes) {
+                throw new IOException("decompressed gzip payload exceeds max size (" + maxBytes + " bytes)");
+            }
+            buf.write(b);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (len < 0 || off + len > b.length) {
+                throw new IndexOutOfBoundsException();
+            }
+            if (buf.size() + len > maxBytes) {
+                throw new IOException("decompressed gzip payload exceeds max size (" + maxBytes + " bytes)");
+            }
+            buf.write(b, off, len);
+        }
+
+        byte[] toByteArray() {
+            return buf.toByteArray();
+        }
     }
 
     private Frames() {}

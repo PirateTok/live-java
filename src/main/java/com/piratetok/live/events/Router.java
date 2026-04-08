@@ -11,6 +11,12 @@ import java.util.Map;
 
 public final class Router {
 
+    private static final long SOCIAL_ACTION_FOLLOW = 1L;
+    private static final long SOCIAL_ACTION_SHARE_MIN = 2L;
+    private static final long SOCIAL_ACTION_SHARE_MAX = 5L;
+    private static final long MEMBER_ACTION_JOIN = 1L;
+    private static final long CONTROL_ACTION_LIVE_ENDED = 3L;
+
     private record SchemaEntry(String eventType, Map<Integer, FieldDef> schema) {}
 
     private static final Map<String, SchemaEntry> METHOD_MAP = Map.ofEntries(
@@ -100,14 +106,21 @@ public final class Router {
         // Sub-routing
         if ("WebcastSocialMessage".equals(method)) {
             long action = longFrom(data, "action");
-            if (action == 1) events.add(new TikTokEvent(EventType.FOLLOW, data, roomId));
-            else if (action >= 2 && action <= 5) events.add(new TikTokEvent(EventType.SHARE, data, roomId));
+            if (action == SOCIAL_ACTION_FOLLOW) {
+                events.add(new TikTokEvent(EventType.FOLLOW, data, roomId));
+            } else if (action >= SOCIAL_ACTION_SHARE_MIN && action <= SOCIAL_ACTION_SHARE_MAX) {
+                events.add(new TikTokEvent(EventType.SHARE, data, roomId));
+            }
         } else if ("WebcastMemberMessage".equals(method)) {
             long action = longFrom(data, "action");
-            if (action == 1) events.add(new TikTokEvent(EventType.JOIN, data, roomId));
+            if (action == MEMBER_ACTION_JOIN) {
+                events.add(new TikTokEvent(EventType.JOIN, data, roomId));
+            }
         } else if ("WebcastControlMessage".equals(method)) {
             long action = longFrom(data, "action");
-            if (action == 3) events.add(new TikTokEvent(EventType.LIVE_ENDED, data, roomId));
+            if (action == CONTROL_ACTION_LIVE_ENDED) {
+                events.add(new TikTokEvent(EventType.LIVE_ENDED, data, roomId));
+            }
         }
 
         return events;

@@ -1,9 +1,9 @@
 package com.piratetok.live.auth;
 
+import com.piratetok.live.http.SharedHttpClient;
 import com.piratetok.live.http.UserAgent;
 
 import java.io.IOException;
-import java.net.CookieManager;
 import java.net.HttpCookie;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
@@ -12,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 
 public final class Ttwid {
 
@@ -41,28 +42,43 @@ public final class Ttwid {
      */
     public static String fetch(Duration timeout, String userAgent, String proxy) throws IOException, InterruptedException {
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
-        var cm = new CookieManager();
-        var builder = HttpClient.newBuilder().cookieHandler(cm);
-        if (proxy != null && !proxy.isEmpty()) {
-            URI proxyUri = URI.create(proxy);
-            builder.proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())));
-        }
-        try (var client = builder.build()) {
-            var req = HttpRequest.newBuilder()
+        var req = HttpRequest.newBuilder()
                 .uri(URI.create("https://www.tiktok.com/"))
                 .header("User-Agent", ua)
                 .timeout(timeout)
                 .GET()
                 .build();
-            client.send(req, HttpResponse.BodyHandlers.discarding());
-
-            for (HttpCookie cookie : cm.getCookieStore().getCookies()) {
-                if ("ttwid".equals(cookie.getName())) {
-                    return cookie.getValue();
-                }
+        HttpResponse<?> resp;
+        if (proxy != null && !proxy.isEmpty()) {
+            URI proxyUri = URI.create(proxy);
+            try (var client = HttpClient.newBuilder()
+                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
+                    .build()) {
+                resp = client.send(req, HttpResponse.BodyHandlers.discarding());
             }
+        } else {
+            resp = SharedHttpClient.instance().send(req, HttpResponse.BodyHandlers.discarding());
+        }
+        String ttwid = findTtwid(resp.headers().map().getOrDefault("set-cookie", List.of()));
+        if (ttwid != null) {
+            return ttwid;
         }
         throw new IOException("ttwid: no ttwid cookie in response");
+    }
+
+    private static String findTtwid(List<String> setCookieHeaders) {
+        for (String header : setCookieHeaders) {
+            try {
+                for (HttpCookie c : HttpCookie.parse(header)) {
+                    if ("ttwid".equals(c.getName())) {
+                        return c.getValue();
+                    }
+                }
+            } catch (IllegalArgumentException ignored) {
+                // malformed Set-Cookie line; try next
+            }
+        }
+        return null;
     }
 
     private Ttwid() {}

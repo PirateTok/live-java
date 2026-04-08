@@ -9,7 +9,6 @@ import com.piratetok.live.Errors.UserNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -36,9 +35,13 @@ public final class Api {
         String lang = loc[0];
         String reg = loc[1];
         String params = encodeParams(Map.of(
-            "aid", "1988", "app_name", "tiktok_web", "device_platform", "web_pc",
+            "aid", TikTokWeb.PARAM_AID,
+            "app_name", TikTokWeb.PARAM_APP_NAME,
+            "device_platform", TikTokWeb.PARAM_DEVICE_PLATFORM_WEB_PC,
             "app_language", lang, "browser_language", lang + "-" + reg, "region", reg,
-            "user_is_login", "false", "sourceType", "54", "staleTime", "600000", "uniqueId", clean
+            "user_is_login", "false", "sourceType", TikTokWeb.PARAM_USER_ROOM_SOURCE_TYPE,
+            "staleTime", TikTokWeb.PARAM_USER_ROOM_STALE_TIME_MS,
+            "uniqueId", clean
         ));
         String url = "https://www.tiktok.com/api-live/user/room?" + params;
 
@@ -46,7 +49,9 @@ public final class Api {
         Map<String, Object> result = Json.parseObject(body);
 
         long statusCode = longVal(result, "statusCode");
-        if (statusCode == 19881007) throw new UserNotFoundException(clean);
+        if (statusCode == TikTokWeb.JSON_STATUS_CODE_USER_NOT_FOUND) {
+            throw new UserNotFoundException(clean);
+        }
         if (statusCode != 0) throw new TikTokApiException(statusCode);
 
         @SuppressWarnings("unchecked")
@@ -61,7 +66,9 @@ public final class Api {
 
         long liveStatus = longVal(liveRoom, "status");
         long userStatus = longVal(user, "status");
-        if (liveStatus != 2 && userStatus != 2) throw new HostNotOnlineException(clean);
+        if (liveStatus != TikTokWeb.LIVE_STATUS_ON_AIR && userStatus != TikTokWeb.LIVE_STATUS_ON_AIR) {
+            throw new HostNotOnlineException(clean);
+        }
 
         return new RoomIdResult(roomId);
     }
@@ -77,12 +84,16 @@ public final class Api {
         String lang = loc[0];
         String reg = loc[1];
         String params = encodeParams(Map.ofEntries(
-            Map.entry("aid", "1988"), Map.entry("app_name", "tiktok_web"),
-            Map.entry("device_platform", "web_pc"), Map.entry("app_language", lang),
+            Map.entry("aid", TikTokWeb.PARAM_AID),
+            Map.entry("app_name", TikTokWeb.PARAM_APP_NAME),
+            Map.entry("device_platform", TikTokWeb.PARAM_DEVICE_PLATFORM_WEB_PC),
+            Map.entry("app_language", lang),
             Map.entry("browser_language", lang + "-" + reg), Map.entry("browser_name", "Mozilla"),
             Map.entry("browser_online", "true"), Map.entry("browser_platform", "Linux x86_64"),
-            Map.entry("cookie_enabled", "true"), Map.entry("screen_height", "1080"),
-            Map.entry("screen_width", "1920"), Map.entry("tz_name", UserAgent.systemTimezone()),
+            Map.entry("cookie_enabled", "true"),
+            Map.entry("screen_height", TikTokWeb.SCREEN_HEIGHT),
+            Map.entry("screen_width", TikTokWeb.SCREEN_WIDTH),
+            Map.entry("tz_name", UserAgent.systemTimezone()),
             Map.entry("webcast_language", lang), Map.entry("room_id", roomId)
         ));
         String url = "https://webcast.tiktok.com/webcast/room/info/?" + params;
@@ -91,7 +102,9 @@ public final class Api {
         Map<String, Object> result = Json.parseObject(body);
 
         long sc = longVal(result, "status_code");
-        if (sc == 4003110) throw new AgeRestrictedException();
+        if (sc == TikTokWeb.WEBCAST_STATUS_CODE_AGE_RESTRICTED) {
+            throw new AgeRestrictedException();
+        }
         if (sc != 0) throw new TikTokApiException(sc);
 
         @SuppressWarnings("unchecked")
@@ -131,12 +144,13 @@ public final class Api {
         if (cookies != null && !cookies.isEmpty()) {
             builder.header("Cookie", cookies);
         }
-        try (var client = HttpClient.newHttpClient()) {
-            var resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            int status = resp.statusCode();
-            if (status == 403 || status == 429) throw new TikTokBlockedException(status);
-            return resp.body();
+        var resp = SharedHttpClient.instance()
+                .send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        int status = resp.statusCode();
+        if (status == TikTokWeb.HTTP_STATUS_FORBIDDEN || status == TikTokWeb.HTTP_STATUS_TOO_MANY_REQUESTS) {
+            throw new TikTokBlockedException(status);
         }
+        return resp.body();
     }
 
     private static long longVal(Map<String, Object> m, String key) {

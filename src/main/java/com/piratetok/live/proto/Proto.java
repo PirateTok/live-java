@@ -1,5 +1,7 @@
 package com.piratetok.live.proto;
 
+import com.piratetok.live.Limits;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -69,35 +71,60 @@ public final class Proto {
     // === Reader ===
 
     public static ProtoMap decode(byte[] data) {
-        return new Reader(data, 0, data.length).readMessage();
+        return decode(data, 0);
+    }
+
+    private static ProtoMap decode(byte[] data, int decodeDepth) {
+        if (decodeDepth > Limits.MAX_PROTO_NEST_DEPTH) {
+            throw new IllegalArgumentException(
+                    "protobuf nesting exceeds max depth (" + Limits.MAX_PROTO_NEST_DEPTH + ")");
+        }
+        return new Reader(data, 0, data.length, decodeDepth).readMessage();
     }
 
     private static final class Reader {
+        private static final int MAX_VARINT_BYTES = 10;
+
         private final byte[] data;
         private int pos;
         private final int end;
+        private final int decodeDepth;
 
-        Reader(byte[] data, int offset, int length) {
+        Reader(byte[] data, int offset, int length, int decodeDepth) {
             this.data = data;
             this.pos = offset;
             this.end = offset + length;
+            this.decodeDepth = decodeDepth;
         }
 
         long readVarint() {
             long result = 0;
             int shift = 0;
+            int iterations = 0;
             while (pos < end) {
+                if (++iterations > MAX_VARINT_BYTES) {
+                    throw new IllegalArgumentException("varint too long");
+                }
                 int b = data[pos++] & 0xFF;
                 result |= (long) (b & 0x7F) << shift;
-                if ((b & 0x80) == 0) return result;
+                if ((b & 0x80) == 0) {
+                    return result;
+                }
                 shift += 7;
             }
-            return result;
+            throw new IllegalArgumentException("truncated varint");
         }
 
         byte[] readLenDelim() {
-            int len = (int) readVarint();
-            if (len < 0 || pos + len > end) return new byte[0];
+            long lenLong = readVarint();
+            if (lenLong < 0 || lenLong > Limits.MAX_PROTO_FIELD_BYTES) {
+                throw new IllegalArgumentException(
+                        "length-delimited field too large (max " + Limits.MAX_PROTO_FIELD_BYTES + " bytes)");
+            }
+            int len = (int) lenLong;
+            if (pos + len > end) {
+                throw new IllegalArgumentException("truncated length-delimited field");
+            }
             byte[] result = Arrays.copyOfRange(data, pos, pos + len);
             pos += len;
             return result;
@@ -132,13 +159,13 @@ public final class Proto {
                     fields.computeIfAbsent(fieldNum, k -> new ArrayList<>()).add(value);
                 }
             }
-            return new ProtoMap(fields);
+            return new ProtoMap(fields, decodeDepth);
         }
     }
 
     // === ProtoMap ===
 
-    public record ProtoMap(Map<Integer, List<Object>> fields) {
+    public record ProtoMap(Map<Integer, List<Object>> fields, int decodeDepth) {
 
         public long getVarint(int field) {
             var vals = fields.get(field);
@@ -161,7 +188,9 @@ public final class Proto {
 
         public ProtoMap getMessage(int field) {
             byte[] raw = getRawBytes(field);
-            return raw.length > 0 ? Proto.decode(raw) : new ProtoMap(Map.of());
+            return raw.length > 0
+                    ? Proto.decode(raw, decodeDepth + 1)
+                    : new ProtoMap(Map.of(), decodeDepth);
         }
 
         public List<ProtoMap> getRepeatedMessages(int field) {
@@ -170,7 +199,7 @@ public final class Proto {
             var result = new ArrayList<ProtoMap>();
             for (var v : vals) {
                 if (v instanceof byte[] b && b.length > 0) {
-                    result.add(Proto.decode(b));
+                    result.add(Proto.decode(b, decodeDepth + 1));
                 }
             }
             return result;
@@ -182,7 +211,7 @@ public final class Proto {
             if (vals == null) return result;
             for (var v : vals) {
                 if (v instanceof byte[] b && b.length > 0) {
-                    var entry = Proto.decode(b);
+                    var entry = Proto.decode(b, decodeDepth + 1);
                     result.put(entry.getString(1), entry.getString(2));
                 }
             }
