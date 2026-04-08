@@ -159,6 +159,17 @@ Tests call TikTok over the network. **Skipped unless environment variables are s
 PIRATETOK_LIVE_TEST_USER=some_live_creator mvn test
 ```
 
+## Replay tests
+
+Deterministic cross-lib validation against binary WSS captures. Requires testdata from a separate repo:
+
+```bash
+git clone https://github.com/PirateTok/live-testdata ../live-testdata
+mvn test
+```
+
+Tests skip gracefully if testdata is not found. You can also set `PIRATETOK_TESTDATA` to point to a custom location.
+
 ## Scheduler tuning
 
 The shared WSS scheduler handles heartbeats and stale checks for all connections. Default pool size is 4 threads.

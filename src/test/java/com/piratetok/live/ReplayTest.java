@@ -30,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.fail;
  * Replay test — reads a capture file, processes it through the full decode
  * pipeline, and asserts every value matches the manifest JSON.
  *
- * <p>Skips if testdata is not available. Set {@code PIRATETOK_TESTDATA} env var
- * or place captures in {@code ../live-rs/captures/}.</p>
+ * <p>Skips if testdata is not available. Clone {@code live-testdata} into
+ * {@code ../live-testdata/} or set {@code PIRATETOK_TESTDATA} env var.</p>
  */
 class ReplayTest {
 
@@ -114,27 +114,31 @@ class ReplayTest {
     // --- testdata location ---
 
     private static Path findTestdata() {
+        // 1. PIRATETOK_TESTDATA env var
         String env = System.getenv("PIRATETOK_TESTDATA");
         if (env != null) {
             Path p = Path.of(env);
             if (Files.exists(p)) return p;
         }
-        // relative: ../live-rs/captures (sibling repo)
-        Path sibling = Path.of("../live-rs/captures");
-        if (Files.exists(sibling)) return sibling.getParent();
+        // 2. ../live-testdata/ (shared testdata repo)
+        Path testdata = Path.of("../live-testdata");
+        if (Files.exists(testdata.resolve("captures"))) return testdata;
+        // 3. ../live-rs/captures/ (dev fallback)
+        Path dev = Path.of("../live-rs/captures");
+        if (Files.exists(dev)) return dev.getParent();
         return null;
     }
 
     private static Path capturePath(Path testdata, String name) {
         Path inCaptures = testdata.resolve("captures").resolve(name + ".bin");
         if (Files.exists(inCaptures)) return inCaptures;
-        return Path.of("captures/" + name + ".bin");
+        return testdata.resolve(name + ".bin");
     }
 
     private static Path manifestPath(Path testdata, String name) {
-        Path inManifests = testdata.resolve("captures/manifests").resolve(name + ".json");
+        Path inManifests = testdata.resolve("manifests").resolve(name + ".json");
         if (Files.exists(inManifests)) return inManifests;
-        return Path.of("captures/manifests/" + name + ".json");
+        return testdata.resolve("captures").resolve("manifests").resolve(name + ".json");
     }
 
     // --- frame reader ---
