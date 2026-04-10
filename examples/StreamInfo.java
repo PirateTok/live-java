@@ -1,5 +1,7 @@
 import com.piratetok.live.http.Api;
-import com.piratetok.live.Errors.*;
+import com.piratetok.live.Errors.HostNotOnlineException;
+import com.piratetok.live.Errors.UserNotFoundException;
+import com.piratetok.live.Errors.AgeRestrictedException;
 import java.time.Duration;
 
 public class StreamInfo {

@@ -14,9 +14,11 @@ public class Scanner {
     static final Pattern R3_WILDCARD = Pattern.compile("import\\s+[\\w.]+\\.\\*\\s*;");
 
     public static void main(String[] args) throws IOException {
-        if (args.length < 1) { System.err.println("usage: Scanner <dir>"); System.exit(1); }
-        try (Stream<Path> files = Files.walk(Path.of(args[0]))) {
-            files.filter(p -> p.toString().endsWith(".java")).forEach(Scanner::check);
+        if (args.length < 1) { System.err.println("usage: Scanner <dir> [dir...]"); System.exit(1); }
+        for (String dir : args) {
+            try (Stream<Path> files = Files.walk(Path.of(dir))) {
+                files.filter(p -> p.toString().endsWith(".java")).forEach(Scanner::check);
+            }
         }
         if (violations > 0) {
             System.err.println("\n" + violations + " discipline violation(s) found");

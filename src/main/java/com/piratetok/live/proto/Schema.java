@@ -91,6 +91,8 @@ public final class Schema {
         Map.entry(3, new FieldDef("nickname", STRING)),
         Map.entry(5, new FieldDef("bioDescription", STRING)),
         Map.entry(9, new FieldDef("avatarThumb", MESSAGE, IMAGE)),
+        Map.entry(10, new FieldDef("avatarMedium", MESSAGE, IMAGE)),
+        Map.entry(11, new FieldDef("avatarLarge", MESSAGE, IMAGE)),
         Map.entry(12, new FieldDef("verified", BOOL)),
         Map.entry(22, new FieldDef("followInfo", MESSAGE, FOLLOW_INFO)),
         Map.entry(24, new FieldDef("fansClub", MESSAGE, FANS_CLUB_MEMBER)),

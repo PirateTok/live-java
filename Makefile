@@ -13,4 +13,4 @@ clean:
 
 discipline:
 	javac -d $(OUT) --release 25 discipline/Scanner.java
-	java -cp $(OUT) discipline.Scanner src/main/java
+	java -cp $(OUT) discipline.Scanner src/main/java examples
