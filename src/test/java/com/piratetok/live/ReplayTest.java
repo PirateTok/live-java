@@ -421,28 +421,33 @@ class ReplayTest {
 
     @SuppressWarnings("unchecked")
     private void runCaptureTest(String name) throws Exception {
+        runCaptureTest(name, name);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void runCaptureTest(String captureName, String manifestName) throws Exception {
         Path testdata = findTestdata();
         if (testdata == null) {
-            System.err.println("SKIP " + name + ": no testdata (set PIRATETOK_TESTDATA or clone live-testdata)");
+            System.err.println("SKIP " + captureName + ": no testdata (set PIRATETOK_TESTDATA or clone live-testdata)");
             return;
         }
 
-        Path cap = capturePath(testdata, name);
-        Path man = manifestPath(testdata, name);
+        Path cap = capturePath(testdata, captureName);
+        Path man = manifestPath(testdata, manifestName);
 
         if (!Files.exists(cap)) {
-            System.err.println("SKIP " + name + ": capture not found at " + cap);
+            System.err.println("SKIP " + captureName + ": capture not found at " + cap);
             return;
         }
         if (!Files.exists(man)) {
-            System.err.println("SKIP " + name + ": manifest not found at " + man);
+            System.err.println("SKIP " + captureName + ": manifest not found at " + man);
             return;
         }
 
         Map<String, Object> manifest = JSON.readValue(man.toFile(), Map.class);
         List<byte[]> frames = readCapture(cap);
         ReplayResult result = replay(frames);
-        assertReplay(name, result, manifest);
+        assertReplay(captureName, result, manifest);
     }
 
     @Test
@@ -458,5 +463,22 @@ class ReplayTest {
     @Test
     void replay_fox4newsdallasfortworth() throws Exception {
         runCaptureTest("fox4newsdallasfortworth");
+    }
+
+    // --- raw (uncompressed) capture variants ---
+
+    @Test
+    void replay_calvinterest6_raw() throws Exception {
+        runCaptureTest("calvinterest6_raw", "calvinterest6");
+    }
+
+    @Test
+    void replay_happyhappygaltv_raw() throws Exception {
+        runCaptureTest("happyhappygaltv_raw", "happyhappygaltv");
+    }
+
+    @Test
+    void replay_fox4newsdallasfortworth_raw() throws Exception {
+        runCaptureTest("fox4newsdallasfortworth_raw", "fox4newsdallasfortworth");
     }
 }

@@ -16,7 +16,7 @@ class WssUrlTest {
     void build_schemeHostPathAndRoomId() {
         String cdn = "webcast-ws.eu.tiktok.com";
         String roomId = "7123456789012345678";
-        String url = WssUrl.build(cdn, roomId, "en", "US");
+        String url = WssUrl.build(cdn, roomId, "en", "US", true);
 
         assertTrue(url.startsWith("wss://" + cdn + "/webcast/im/ws_proxy/ws_reuse_supplement/?"));
 
@@ -26,12 +26,22 @@ class WssUrlTest {
         assertEquals("1988", q.get("aid"));
         assertEquals(Long.toString(Wss.HEARTBEAT_INTERVAL_MS), q.get("heartbeat_duration"));
         assertEquals("audience", q.get("identity"));
+        assertEquals("gzip", q.get("compress"));
+    }
+
+    @Test
+    void build_compressDisabledEmitsEmptyValue() {
+        String cdn = "webcast-ws.tiktok.com";
+        String roomId = "7123456789012345678";
+        String url = WssUrl.build(cdn, roomId, "en", "US", false);
+        Map<String, String> q = parseQuery(url.substring(url.indexOf('?') + 1));
+        assertEquals("", q.get("compress"));
     }
 
     @Test
     void build_encodesSpecialCharactersInRoomId() {
         String roomId = "id+with spaces";
-        String url = WssUrl.build("example.test", roomId, "en", "US");
+        String url = WssUrl.build("example.test", roomId, "en", "US", true);
         Map<String, String> q = parseQuery(url.substring(url.indexOf('?') + 1));
         assertEquals(roomId, q.get("room_id"));
     }

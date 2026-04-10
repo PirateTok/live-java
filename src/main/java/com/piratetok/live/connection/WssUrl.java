@@ -20,7 +20,7 @@ public final class WssUrl {
     private static final String FLAG_TRUE = "1";
     private static final String UPDATE_VERSION_CODE = "2.0.0";
 
-    public static String build(String cdnHost, String roomId, String language, String region) {
+    public static String build(String cdnHost, String roomId, String language, String region, boolean compress) {
         String lastRtt = String.format("%.3f", LAST_RTT_MIN_MS + Math.random() * LAST_RTT_RANDOM_SPREAD_MS);
         String browserLang = language + "-" + region;
 
@@ -39,7 +39,7 @@ public final class WssUrl {
         params.put("app_name", "tiktok_web");
         params.put("sup_ws_ds_opt", FLAG_TRUE);
         params.put("update_version_code", UPDATE_VERSION_CODE);
-        params.put("compress", "gzip");
+        params.put("compress", compress ? "gzip" : "");
         params.put("webcast_language", language);
         params.put("ws_direct", FLAG_TRUE);
         params.put("aid", "1988");

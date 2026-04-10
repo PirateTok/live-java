@@ -25,7 +25,7 @@ client.on(EventType.GIFT, e -> {
 
 client.on(EventType.LIKE, e -> {
     var user = (Map<String,Object>) e.data().getOrDefault("user", Map.of());
-    System.out.println("[like] " + user.getOrDefault("uniqueId", "?") + " (" + e.data().get("totalLikes") + " total)");
+    System.out.println("[like] " + user.getOrDefault("uniqueId", "?") + " (" + e.data().get("total") + " total)");
 });
 
 // Connect — blocks, handles auth, room resolution, WSS, heartbeat, reconnection
@@ -39,10 +39,10 @@ Requires Java >= 25. Single runtime dependency: Jackson (`jackson-databind`).
 **Maven**:
 
 ```
-mvn -q package
+mvn -q package dependency:copy-dependencies
 ```
 
-The JAR is `target/live-0.1.3.jar`.
+The JAR is `target/live-0.1.3.jar`, dependencies are in `target/dependency/`.
 
 ## Other languages
 
@@ -80,13 +80,20 @@ The JAR is `target/live-0.1.3.jar`.
 ```java
 var client = new PirateTokClient("username_here")
     .cdnEU()                              // EU CDN (default: global)
+    .cdnUS()                              // US CDN
+    .cdn("webcast-ws.eu.tiktok.com")      // custom CDN host
     .timeout(Duration.ofSeconds(15))      // HTTP timeout
     .maxRetries(10)                       // reconnect attempts
     .staleTimeout(Duration.ofSeconds(90)) // no-data timeout
     .language("en")                       // override detected language
     .region("US")                         // override detected region
     .userAgent("custom UA")               // override random UA
-    .cookies("sessionid=abc; sid_tt=abc");// session cookies (18+ room info only)
+    .cookies("sessionid=abc; sid_tt=abc") // session cookies (18+ room info only)
+    .proxy("http://127.0.0.1:8080")      // HTTP/HTTPS/SOCKS5 proxy for all traffic
+    .compress(false);                     // disable gzip compression for WSS payloads (trades bandwidth for CPU)
+
+// Stop a running connection (from another thread)
+client.disconnect();
 ```
 
 ## Async (non-blocking)
@@ -133,7 +140,7 @@ var info = Api.fetchRoomInfo(result.roomId(), Duration.ofSeconds(10),
 ## Examples
 
 ```bash
-mvn -q package
+mvn -q package dependency:copy-dependencies
 java -cp target/classes:target/dependency/* BasicChat <username>
 java -cp target/classes:target/dependency/* OnlineCheck <username>
 java -cp target/classes:target/dependency/* StreamInfo <username>
@@ -177,10 +184,6 @@ The shared WSS scheduler handles heartbeats and stale checks for all connections
 ```bash
 export PIRATETOK_WSS_SCHEDULER_THREADS=64  # for high connection counts
 ```
-
-## Known gaps
-
-- Proxy transport support is not wired yet.
 
 ## License
 

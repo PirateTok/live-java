@@ -47,6 +47,7 @@ public final class PirateTokClient {
     private String userAgent;
     private String cookies;
     private String proxy;
+    private boolean compress = true;
     private String language;
     private String region;
     private final AtomicBoolean stop = new AtomicBoolean(false);
@@ -72,6 +73,9 @@ public final class PirateTokClient {
 
     /** Set proxy URL for all HTTP and WSS connections (e.g. {@code "http://host:port"}). */
     public PirateTokClient proxy(String proxy) { this.proxy = proxy; return this; }
+
+    /** Enable or disable gzip compression for the WSS connection (default {@code true}). */
+    public PirateTokClient compress(boolean enabled) { this.compress = enabled; return this; }
 
     /** Override detected language code for API requests and headers. */
     public PirateTokClient language(String lang) { this.language = lang; return this; }
@@ -120,7 +124,7 @@ public final class PirateTokClient {
             throws Exception {
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
         String ttwid = Ttwid.fetch(timeout, ua, proxy);
-        String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region);
+        String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region, compress);
         if (stop.get()) {
             return SessionEnd.STOPPED;
         }
@@ -158,7 +162,7 @@ public final class PirateTokClient {
             if (stop.get()) {
                 return CompletableFuture.completedFuture(SessionEnd.STOPPED);
             }
-            String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region);
+            String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region, compress);
             return Wss.connectAsync(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies, acceptLanguage(),
                     proxy,
                     this::emit,
