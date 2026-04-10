@@ -46,6 +46,7 @@ public final class PirateTokClient {
     private Duration staleTimeout = Duration.ofSeconds(DEFAULT_STALE_TIMEOUT_SECONDS);
     private String userAgent;
     private String cookies;
+    private String proxy;
     private String language;
     private String region;
     private final AtomicBoolean stop = new AtomicBoolean(false);
@@ -68,6 +69,9 @@ public final class PirateTokClient {
     public PirateTokClient staleTimeout(Duration t) { staleTimeout = t; return this; }
     public PirateTokClient userAgent(String ua) { this.userAgent = ua; return this; }
     public PirateTokClient cookies(String cookies) { this.cookies = cookies; return this; }
+
+    /** Set proxy URL for all HTTP and WSS connections (e.g. {@code "http://host:port"}). */
+    public PirateTokClient proxy(String proxy) { this.proxy = proxy; return this; }
 
     /** Override detected language code for API requests and headers. */
     public PirateTokClient language(String lang) { this.language = lang; return this; }
@@ -115,13 +119,14 @@ public final class PirateTokClient {
     private SessionEnd runSingleWssSession(RoomIdResult room, CompletableFuture<Void> sessionStop)
             throws Exception {
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
-        String ttwid = Ttwid.fetch(timeout, ua);
+        String ttwid = Ttwid.fetch(timeout, ua, proxy);
         String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region);
         if (stop.get()) {
             return SessionEnd.STOPPED;
         }
         try {
             Wss.connect(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies, acceptLanguage(),
+                proxy,
                 this::emit,
                 e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
                 stop,
@@ -142,7 +147,7 @@ public final class PirateTokClient {
         String ua = (userAgent != null && !userAgent.isEmpty()) ? userAgent : UserAgent.randomUa();
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return Ttwid.fetch(timeout, ua);
+                return Ttwid.fetch(timeout, ua, proxy);
             } catch (IOException | InterruptedException e) {
                 if (e instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
@@ -155,6 +160,7 @@ public final class PirateTokClient {
             }
             String wssUrl = WssUrl.build(cdnHost, room.roomId(), language, region);
             return Wss.connectAsync(wssUrl, ttwid, room.roomId(), staleTimeout, ua, cookies, acceptLanguage(),
+                    proxy,
                     this::emit,
                     e -> emit(new TikTokEvent(EventType.ERROR, Map.of("error", e.getMessage()))),
                     stop,
@@ -180,7 +186,7 @@ public final class PirateTokClient {
      * Connect synchronously (blocks the calling thread until disconnect or retry budget exhausted).
      */
     public String connect() throws Exception {
-        var room = Api.checkOnline(username, timeout, language, region);
+        var room = Api.checkOnline(username, timeout, language, region, proxy);
         stop.set(false);
         emit(new TikTokEvent(EventType.CONNECTED, Map.of("roomId", room.roomId()), room.roomId()));
 
@@ -243,7 +249,7 @@ public final class PirateTokClient {
         return CompletableFuture
                 .supplyAsync(() -> {
                     try {
-                        return Api.checkOnline(username, timeout, language, region);
+                        return Api.checkOnline(username, timeout, language, region, proxy);
                     } catch (IOException | InterruptedException e) {
                         if (e instanceof InterruptedException) {
                             Thread.currentThread().interrupt();
@@ -308,8 +314,18 @@ public final class PirateTokClient {
         return Api.checkOnline(username, timeout);
     }
 
+    public static RoomIdResult checkOnline(String username, Duration timeout, String proxy)
+            throws IOException, InterruptedException {
+        return Api.checkOnline(username, timeout, null, null, proxy);
+    }
+
     public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies)
             throws IOException, InterruptedException {
         return Api.fetchRoomInfo(roomId, timeout, cookies);
+    }
+
+    public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies, String proxy)
+            throws IOException, InterruptedException {
+        return Api.fetchRoomInfo(roomId, timeout, cookies, null, null, proxy);
     }
 }

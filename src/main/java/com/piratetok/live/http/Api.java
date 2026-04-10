@@ -7,8 +7,11 @@ import com.piratetok.live.Errors.TikTokBlockedException;
 import com.piratetok.live.Errors.UserNotFoundException;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -29,11 +32,16 @@ public final class Api {
 
     public static RoomIdResult checkOnline(String username, Duration timeout)
             throws IOException, InterruptedException {
-        return checkOnline(username, timeout, null, null);
+        return checkOnline(username, timeout, null, null, null);
     }
 
     public static RoomIdResult checkOnline(String username, Duration timeout, String language, String region)
             throws IOException, InterruptedException {
+        return checkOnline(username, timeout, language, region, null);
+    }
+
+    public static RoomIdResult checkOnline(String username, Duration timeout, String language, String region,
+            String proxy) throws IOException, InterruptedException {
         String clean = username.strip().replaceFirst("^@", "");
         String[] loc = resolveLocale(language, region);
         String lang = loc[0];
@@ -46,7 +54,7 @@ public final class Api {
         ));
         String url = "https://www.tiktok.com/api-live/user/room?" + params;
 
-        String body = httpGet(url, "", timeout);
+        String body = httpGet(url, "", timeout, proxy);
         Map<String, Object> result = Json.parseObject(body);
 
         long statusCode = longVal(result, "statusCode");
@@ -76,11 +84,16 @@ public final class Api {
 
     public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies)
             throws IOException, InterruptedException {
-        return fetchRoomInfo(roomId, timeout, cookies, null, null);
+        return fetchRoomInfo(roomId, timeout, cookies, null, null, null);
     }
 
     public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies,
             String language, String region) throws IOException, InterruptedException {
+        return fetchRoomInfo(roomId, timeout, cookies, language, region, null);
+    }
+
+    public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies,
+            String language, String region, String proxy) throws IOException, InterruptedException {
         String[] loc = resolveLocale(language, region);
         String lang = loc[0];
         String reg = loc[1];
@@ -95,7 +108,7 @@ public final class Api {
         ));
         String url = "https://webcast.tiktok.com/webcast/room/info/?" + params;
 
-        String body = httpGet(url, cookies, timeout);
+        String body = httpGet(url, cookies, timeout, proxy);
         Map<String, Object> result = Json.parseObject(body);
 
         long sc = longVal(result, "status_code");
@@ -130,7 +143,7 @@ public final class Api {
         );
     }
 
-    private static String httpGet(String url, String cookies, Duration timeout)
+    private static String httpGet(String url, String cookies, Duration timeout, String proxy)
             throws IOException, InterruptedException {
         var builder = HttpRequest.newBuilder()
             .uri(URI.create(url))
@@ -141,8 +154,18 @@ public final class Api {
         if (cookies != null && !cookies.isEmpty()) {
             builder.header("Cookie", cookies);
         }
-        var resp = SharedHttpClient.instance()
-                .send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp;
+        if (proxy != null && !proxy.isEmpty()) {
+            URI proxyUri = URI.create(proxy);
+            try (var client = HttpClient.newBuilder()
+                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
+                    .build()) {
+                resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            }
+        } else {
+            resp = SharedHttpClient.instance()
+                    .send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        }
         int status = resp.statusCode();
         if (status == 403 || status == 429) {
             throw new TikTokBlockedException(status);

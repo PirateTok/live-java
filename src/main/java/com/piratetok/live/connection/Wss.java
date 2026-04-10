@@ -8,6 +8,8 @@ import com.piratetok.live.http.UserAgent;
 import com.piratetok.live.proto.Proto;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
@@ -152,6 +154,7 @@ public final class Wss {
      * @param userAgent      user agent string, or {@code null} for random
      * @param cookies        extra cookies to append alongside ttwid, or {@code null}
      * @param acceptLanguage Accept-Language header value (e.g. {@code "en-US,en;q=0.9"})
+     * @param proxy          proxy URL (e.g. "http://host:port"), or {@code null} for direct
      * @param onEvent        event callback
      * @param onError        error callback
      * @param stop           atomic flag to signal disconnect
@@ -160,7 +163,7 @@ public final class Wss {
      */
     public static CompletableFuture<Void> connectAsync(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
-            String userAgent, String cookies, String acceptLanguage,
+            String userAgent, String cookies, String acceptLanguage, String proxy,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
             CompletableFuture<Void> sessionStop
@@ -255,7 +258,18 @@ public final class Wss {
             }
         };
 
-        return HTTP_CLIENT.newWebSocketBuilder()
+        HttpClient wsClient;
+        if (proxy != null && !proxy.isEmpty()) {
+            URI proxyUri = URI.create(proxy);
+            wsClient = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
+                    .build();
+        } else {
+            wsClient = HTTP_CLIENT;
+        }
+
+        return wsClient.newWebSocketBuilder()
                 .header("Cookie", cookieHeader)
                 .header("User-Agent", ua)
                 .header("Origin", "https://www.tiktok.com")
@@ -324,6 +338,7 @@ public final class Wss {
      * @param userAgent      user agent string, or {@code null} for random
      * @param cookies        extra cookies to append alongside ttwid, or {@code null}
      * @param acceptLanguage Accept-Language header value (e.g. {@code "en-US,en;q=0.9"})
+     * @param proxy          proxy URL (e.g. "http://host:port"), or {@code null} for direct
      * @param onEvent        event callback
      * @param onError        error callback
      * @param stop           atomic flag to signal disconnect
@@ -332,14 +347,14 @@ public final class Wss {
      */
     public static void connect(
             String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
-            String userAgent, String cookies, String acceptLanguage,
+            String userAgent, String cookies, String acceptLanguage, String proxy,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
             CompletableFuture<Void> sessionStop
     ) throws Exception {
         try {
             connectAsync(wssUrl, ttwid, roomId, staleTimeout, userAgent, cookies, acceptLanguage,
-                    onEvent, onError, stop, sessionStop).join();
+                    proxy, onEvent, onError, stop, sessionStop).join();
         } catch (CompletionException ce) {
             Throwable c = ce.getCause();
             if (c instanceof Exception ex) {
