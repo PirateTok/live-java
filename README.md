@@ -164,7 +164,7 @@ PIRATETOK_LIVE_TEST_USER=some_live_creator mvn test
 Deterministic cross-lib validation against binary WSS captures. Requires testdata from a separate repo:
 
 ```bash
-git clone https://github.com/PirateTok/live-testdata ../live-testdata
+git clone https://github.com/PirateTok/live-testdata testdata
 mvn test
 ```
 

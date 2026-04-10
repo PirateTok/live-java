@@ -120,25 +120,18 @@ class ReplayTest {
             Path p = Path.of(env);
             if (Files.exists(p)) return p;
         }
-        // 2. ../live-testdata/ (shared testdata repo)
-        Path testdata = Path.of("../live-testdata");
+        // 2. testdata/ in repo root
+        Path testdata = Path.of("testdata");
         if (Files.exists(testdata.resolve("captures"))) return testdata;
-        // 3. ../live-rs/captures/ (dev fallback)
-        Path dev = Path.of("../live-rs/captures");
-        if (Files.exists(dev)) return dev.getParent();
         return null;
     }
 
     private static Path capturePath(Path testdata, String name) {
-        Path inCaptures = testdata.resolve("captures").resolve(name + ".bin");
-        if (Files.exists(inCaptures)) return inCaptures;
-        return testdata.resolve(name + ".bin");
+        return testdata.resolve("captures").resolve(name + ".bin");
     }
 
     private static Path manifestPath(Path testdata, String name) {
-        Path inManifests = testdata.resolve("manifests").resolve(name + ".json");
-        if (Files.exists(inManifests)) return inManifests;
-        return testdata.resolve("captures").resolve("manifests").resolve(name + ".json");
+        return testdata.resolve("manifests").resolve(name + ".json");
     }
 
     // --- frame reader ---
