@@ -2,6 +2,16 @@
 
 ## 0.2.0
 
+Breaking:
+- `RoomIdResult(roomId)` → `RoomIdResult(roomId, anchorId)`; `RoomInfo` gains `rawJson`.
+- RoomUserSeq data keys `currentViewerCount` → `viewerCount`, `uniqueViewerCount` → `totalUser`.
+- `WssUrl.build(..., compress, heartbeatInterval)` and `Wss.connect[Async](url, ttwid, roomId, heartbeatInterval, staleTimeout, ...)`;
+  `Wss.HEARTBEAT_INTERVAL_MS` removed.
+- check_online throws `TikTokBlockedException` on empty / non-JSON bodies (was `IllegalArgumentException`).
+- Replay tests fail (instead of passing) when testdata is missing.
+
+Changes:
+
 - ttwid fetch retries up to 8× (750 ms apart) when TikTok omits the cookie; transport errors still propagate.
 - Reconnect loop: a ttwid or WSS failure is a failed attempt (`reconnecting`, backoff) instead of aborting `connect()`.
 - ttwid + UA are reused across reconnects and rotated only on DEVICE_BLOCKED or a connection that died within 30 s.
