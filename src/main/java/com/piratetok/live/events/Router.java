@@ -53,6 +53,7 @@ public final class Router {
         e("WebcastHourlyRankMessage", EventType.HOURLY_RANK, Messages.HOURLY_RANK),
         e("WebcastMsgDetectMessage", EventType.MSG_DETECT, Messages.MSG_DETECT),
         e("WebcastLinkMicFanTicketMethod", EventType.LINK_MIC_FAN_TICKET, Messages.LINK_MIC_FAN_TICKET),
+        e("WebcastRoomVerifyMessage", EventType.ROOM_VERIFY, Messages.ROOM_VERIFY),
         e("RoomVerifyMessage", EventType.ROOM_VERIFY, Messages.ROOM_VERIFY),
         e("WebcastOecLiveShoppingMessage", EventType.OEC_LIVE_SHOPPING, Messages.OEC_LIVE_SHOPPING),
         e("WebcastGiftBroadcastMessage", EventType.GIFT_BROADCAST, Messages.GIFT_BROADCAST),
@@ -89,7 +90,7 @@ public final class Router {
     public static List<TikTokEvent> decode(String method, byte[] payload, String roomId) {
         var entry = METHOD_MAP.get(method);
         if (entry == null) {
-            return List.of(new TikTokEvent(EventType.UNKNOWN, Map.of("method", method), roomId));
+            return List.of(unknown(method, payload, roomId));
         }
 
         Map<String, Object> data;
@@ -97,7 +98,7 @@ public final class Router {
             var protoMap = Proto.decode(payload);
             data = protoMap.toMap(entry.schema());
         } catch (RuntimeException _ex) {
-            return List.of(new TikTokEvent(EventType.UNKNOWN, Map.of("method", method), roomId));
+            return List.of(unknown(method, payload, roomId));
         }
 
         var events = new ArrayList<TikTokEvent>();
@@ -124,6 +125,11 @@ public final class Router {
         }
 
         return events;
+    }
+
+    /** Raw payload is kept so nothing is lost — callers can decode Tier C types themselves. */
+    private static TikTokEvent unknown(String method, byte[] payload, String roomId) {
+        return new TikTokEvent(EventType.UNKNOWN, Map.of("method", method, "payload", payload), roomId);
     }
 
     private static long longFrom(Map<String, Object> m, String key) {

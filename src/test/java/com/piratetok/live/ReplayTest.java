@@ -30,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.fail;
  * Replay test — reads a capture file, processes it through the full decode
  * pipeline, and asserts every value matches the manifest JSON.
  *
- * <p>Skips if testdata is not available. Clone {@code live-testdata} into
- * {@code ../live-testdata/} or set {@code PIRATETOK_TESTDATA} env var.</p>
+ * <p>Fails if testdata is not available. Place captures/ + manifests/ in the repo's
+ * {@code testdata/} or set {@code PIRATETOK_TESTDATA} env var.</p>
  */
 class ReplayTest {
 
@@ -249,7 +249,9 @@ class ReplayTest {
                         likeEvents.add(new LikeEventRecord(
                             wireCount, wireTotal, stats.totalLikeCount(), stats.accumulatedCount(), stats.wentBackwards()
                         ));
-                    } catch (RuntimeException ignored) {}
+                    } catch (RuntimeException ex) {
+                        decodeFailures++;
+                    }
                 }
 
                 // Gift streak tracker
@@ -274,7 +276,9 @@ class ReplayTest {
                             streak.isFinal(),
                             streak.totalDiamondCount()
                         ));
-                    } catch (RuntimeException ignored) {}
+                    } catch (RuntimeException ex) {
+                        decodeFailures++;
+                    }
                 }
             }
         }
@@ -426,27 +430,29 @@ class ReplayTest {
 
     @SuppressWarnings("unchecked")
     private void runCaptureTest(String captureName, String manifestName) throws Exception {
+        // missing data is a failure, never a silent pass
         Path testdata = findTestdata();
         if (testdata == null) {
-            System.err.println("SKIP " + captureName + ": no testdata (set PIRATETOK_TESTDATA or clone live-testdata)");
-            return;
+            fail(captureName + ": no testdata (set PIRATETOK_TESTDATA or place captures/ + manifests/ in testdata/)");
         }
 
         Path cap = capturePath(testdata, captureName);
         Path man = manifestPath(testdata, manifestName);
 
         if (!Files.exists(cap)) {
-            System.err.println("SKIP " + captureName + ": capture not found at " + cap);
-            return;
+            fail(captureName + ": capture not found at " + cap);
         }
         if (!Files.exists(man)) {
-            System.err.println("SKIP " + captureName + ": manifest not found at " + man);
-            return;
+            fail(captureName + ": manifest not found at " + man);
         }
 
         Map<String, Object> manifest = JSON.readValue(man.toFile(), Map.class);
         List<byte[]> frames = readCapture(cap);
+        if (frames.isEmpty()) {
+            fail(captureName + ": capture has no frames");
+        }
         ReplayResult result = replay(frames);
+        System.out.println(captureName + ": " + frames.size() + " frames loaded from " + cap.toAbsolutePath());
         assertReplay(captureName, result, manifest);
     }
 

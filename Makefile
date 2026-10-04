@@ -1,16 +1,19 @@
-SOURCES := $(shell find src/main/java examples -name "*.java" 2>/dev/null)
 OUT := out
 
-.PHONY: build clean discipline
+.PHONY: build test clean discipline
 
-build: $(SOURCES)
-	@mkdir -p $(OUT)
-	javac -d $(OUT) --release 25 $(SOURCES)
-	@echo "build ok — $$(echo $(SOURCES) | wc -w) files"
+# lib + examples (examples are a Maven source root); Maven supplies jackson on the classpath
+build:
+	mvn -q compile
+	@echo "build ok"
+
+test:
+	mvn -q test
 
 clean:
-	rm -rf $(OUT)
+	rm -rf $(OUT) target
 
 discipline:
+	@mkdir -p $(OUT)
 	javac -d $(OUT) --release 25 discipline/Scanner.java
 	java -cp $(OUT) discipline.Scanner src/main/java examples

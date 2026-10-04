@@ -45,6 +45,20 @@ public final class Errors {
         }
     }
 
+    /** The endpoint needs a logged-in session: pass session cookies ({@code "sessionid=xxx; sid_tt=xxx"}). */
+    public static class SessionRequiredException extends PirateTokException {
+        public SessionRequiredException(String message) {
+            super("session required: " + message);
+        }
+    }
+
+    /** TikTok answered, but not with something we can use. */
+    public static class InvalidResponseException extends PirateTokException {
+        public InvalidResponseException(String message) {
+            super("invalid response: " + message);
+        }
+    }
+
     public static class DeviceBlockedException extends PirateTokException {
         public DeviceBlockedException() {
             super("device blocked — ttwid was flagged, fetch a fresh one");

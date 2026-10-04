@@ -9,7 +9,7 @@ public class OnlineCheck {
         if (args.length < 1) { System.out.println("usage: OnlineCheck <username>"); return; }
         try {
             var r = Api.checkOnline(args[0], Duration.ofSeconds(10));
-            System.out.println("LIVE  " + args[0] + "  room_id=" + r.roomId());
+            System.out.println("LIVE  " + args[0] + "  room_id=" + r.roomId() + "  anchor_id=" + r.anchorId());
         } catch (HostNotOnlineException e) {
             System.out.println("OFF   " + args[0]);
         } catch (UserNotFoundException e) {

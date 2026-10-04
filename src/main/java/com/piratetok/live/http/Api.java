@@ -2,6 +2,8 @@ package com.piratetok.live.http;
 
 import com.piratetok.live.Errors.AgeRestrictedException;
 import com.piratetok.live.Errors.HostNotOnlineException;
+import com.piratetok.live.Errors.InvalidResponseException;
+import com.piratetok.live.Errors.SessionRequiredException;
 import com.piratetok.live.Errors.TikTokApiException;
 import com.piratetok.live.Errors.TikTokBlockedException;
 import com.piratetok.live.Errors.UserNotFoundException;
@@ -16,19 +18,35 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public final class Api {
 
     private static final long STATUS_USER_NOT_FOUND = 19881007;
     private static final long STATUS_AGE_RESTRICTED = 4003110;
+    private static final long STATUS_SESSION_REQUIRED = 20003;
     private static final int LIVE_STATUS_ON_AIR = 2;
 
-    public record RoomIdResult(String roomId) {}
+    /** {@code anchorId} is the streamer's user ID ({@code data.user.id}); feeds {@link #fetchRoomAudience}. */
+    public record RoomIdResult(String roomId, String anchorId) {}
 
     public record StreamUrls(String flvOrigin, String flvHd, String flvSd, String flvLd, String flvAudio) {}
 
-    public record RoomInfo(String title, int viewers, int likes, int totalUser, StreamUrls streamUrl) {}
+    public record RoomInfo(String title, int viewers, int likes, int totalUser, StreamUrls streamUrl, String rawJson) {}
+
+    public record RoomAudience(long total, long anonymous, List<AudienceViewer> viewers, String rawJson) {}
+
+    /**
+     * One named viewer. {@code avatarUrl} is {@code null} when TikTok sent none; {@code isFollower} = follows
+     * the streamer, {@code isFollowing} = the streamer follows them.
+     */
+    public record AudienceViewer(long rank, long score, String userId, String username, String nickname,
+            String secUid, String avatarUrl, long followerCount, boolean verified,
+            boolean isFollower, boolean isFollowing, boolean isSubscriber) {}
+
+    private record HttpResult(int status, String body) {}
 
     public static RoomIdResult checkOnline(String username, Duration timeout)
             throws IOException, InterruptedException {
@@ -54,32 +72,39 @@ public final class Api {
         ));
         String url = "https://www.tiktok.com/api-live/user/room?" + params;
 
-        String body = httpGet(url, "", timeout, proxy);
-        Map<String, Object> result = Json.parseObject(body);
+        HttpResult resp = httpGet(url, "", timeout, proxy);
+        return parseCheckOnline(clean, resp.body(), resp.status());
+    }
+
+    static RoomIdResult parseCheckOnline(String username, String body, int httpStatus) {
+        // empty / mangled / non-JSON = TikTok blocked the IP or fingerprint
+        Map<String, Object> result;
+        try {
+            result = Json.parseObject(body);
+        } catch (IllegalArgumentException notJson) {
+            throw new TikTokBlockedException(httpStatus);
+        }
 
         long statusCode = longVal(result, "statusCode");
         if (statusCode == STATUS_USER_NOT_FOUND) {
-            throw new UserNotFoundException(clean);
+            throw new UserNotFoundException(username);
         }
         if (statusCode != 0) throw new TikTokApiException(statusCode);
 
-        @SuppressWarnings("unchecked")
-        var data = (Map<String, Object>) result.getOrDefault("data", Map.of());
-        @SuppressWarnings("unchecked")
-        var user = (Map<String, Object>) data.getOrDefault("user", Map.of());
-        @SuppressWarnings("unchecked")
-        var liveRoom = (Map<String, Object>) data.getOrDefault("liveRoom", Map.of());
+        var data = obj(result, "data");
+        var user = obj(data, "user");
+        var liveRoom = obj(data, "liveRoom");
 
-        String roomId = String.valueOf(user.getOrDefault("roomId", ""));
-        if (roomId.isEmpty() || "0".equals(roomId)) throw new HostNotOnlineException(clean);
+        String roomId = strVal(user, "roomId");
+        if (roomId.isEmpty() || "0".equals(roomId)) throw new HostNotOnlineException(username);
 
         long liveStatus = longVal(liveRoom, "status");
         long userStatus = longVal(user, "status");
         if (liveStatus != LIVE_STATUS_ON_AIR && userStatus != LIVE_STATUS_ON_AIR) {
-            throw new HostNotOnlineException(clean);
+            throw new HostNotOnlineException(username);
         }
 
-        return new RoomIdResult(roomId);
+        return new RoomIdResult(roomId, strVal(user, "id"));
     }
 
     public static RoomInfo fetchRoomInfo(String roomId, Duration timeout, String cookies)
@@ -108,7 +133,7 @@ public final class Api {
         ));
         String url = "https://webcast.tiktok.com/webcast/room/info/?" + params;
 
-        String body = httpGet(url, cookies, timeout, proxy);
+        String body = httpGet(url, cookies, timeout, proxy).body();
         Map<String, Object> result = Json.parseObject(body);
 
         long sc = longVal(result, "status_code");
@@ -117,18 +142,102 @@ public final class Api {
         }
         if (sc != 0) throw new TikTokApiException(sc);
 
-        @SuppressWarnings("unchecked")
-        var data = (Map<String, Object>) result.getOrDefault("data", Map.of());
-        @SuppressWarnings("unchecked")
-        var stats = (Map<String, Object>) data.getOrDefault("stats", Map.of());
+        var data = obj(result, "data");
+        var stats = obj(data, "stats");
 
         return new RoomInfo(
             strVal(data, "title"),
             (int) longVal(data, "user_count"),
             (int) longVal(stats, "like_count"),
             (int) longVal(stats, "total_user"),
-            parseStreamUrls(data.get("stream_url"))
+            parseStreamUrls(data.get("stream_url")),
+            body
         );
+    }
+
+    /**
+     * Fetch the full audience roster: every named viewer currently in the room — the whole viewer panel, not
+     * just the top-3 box (for that, see {@code RoomUserSeq.topViewers}, which needs no cookies).
+     *
+     * <p>TikTok gates this endpoint behind a login: pass session cookies ({@code "sessionid=xxx; sid_tt=xxx"})
+     * or you get {@link SessionRequiredException}. No ttwid, msToken, or signing needed.</p>
+     *
+     * @param anchorId the streamer's user ID ({@link RoomIdResult#anchorId()}), or {@code null} to resolve it
+     *                 from room info (one extra request)
+     */
+    public static RoomAudience fetchRoomAudience(String roomId, String anchorId, Duration timeout, String cookies,
+            String language, String region, String proxy) throws IOException, InterruptedException {
+        String anchor = anchorId != null && !anchorId.isEmpty()
+                ? anchorId
+                : resolveAnchorId(fetchRoomInfo(roomId, timeout, cookies, language, region, proxy));
+        String[] loc = resolveLocale(language, region);
+        String params = encodeParams(Map.of(
+            "aid", "1988", "app_name", "tiktok_web", "device_platform", "web_pc",
+            "app_language", loc[0], "browser_language", loc[0] + "-" + loc[1],
+            "channel", "tiktok_web", "room_id", roomId, "anchor_id", anchor
+        ));
+        String url = "https://webcast.tiktok.com/webcast/ranklist/online_audience/?" + params;
+        HttpResult resp = httpGet(url, cookies, timeout, proxy);
+        return parseRoomAudience(resp.body(), resp.status());
+    }
+
+    private static String resolveAnchorId(RoomInfo info) {
+        String id = strVal(obj(obj(Json.parseObject(info.rawJson()), "data"), "owner"), "id_str");
+        if (id.isEmpty()) {
+            throw new InvalidResponseException("no owner id in room info");
+        }
+        return id;
+    }
+
+    static RoomAudience parseRoomAudience(String body, int httpStatus) {
+        if (body == null || body.isEmpty()) {
+            throw new InvalidResponseException("empty response from online_audience (HTTP " + httpStatus + ")");
+        }
+        Map<String, Object> result = Json.parseObject(body);
+        if (!(result.get("status_code") instanceof Number code)) {
+            throw new InvalidResponseException("no status_code in online_audience response");
+        }
+        var data = obj(result, "data");
+        if (code.longValue() == STATUS_SESSION_REQUIRED) {
+            throw new SessionRequiredException(
+                "audience roster needs login — pass session cookies to fetchRoomAudience()");
+        }
+        if (code.longValue() != 0) {
+            throw new InvalidResponseException(
+                "online_audience status_code=" + code.longValue() + " " + strVal(data, "message"));
+        }
+        if (!(result.get("data") instanceof Map<?, ?>)) {
+            throw new InvalidResponseException("missing 'data' in online_audience");
+        }
+
+        var viewers = new ArrayList<AudienceViewer>();
+        if (data.get("ranks") instanceof List<?> ranks) {
+            for (Object r : ranks) {
+                if (r instanceof Map<?, ?> rank && rank.get("user") instanceof Map<?, ?>) {
+                    viewers.add(audienceViewer(asMap(rank)));
+                }
+            }
+        }
+        return new RoomAudience(longVal(data, "total"), longVal(data, "anonymous"), List.copyOf(viewers), body);
+    }
+
+    private static AudienceViewer audienceViewer(Map<String, Object> rank) {
+        var user = obj(rank, "user");
+        String userId = strVal(user, "id_str");
+        if (userId.isEmpty()) {
+            userId = strVal(user, "id");
+        }
+        String avatar = null;
+        if (obj(user, "avatar_thumb").get("url_list") instanceof List<?> urls
+                && !urls.isEmpty() && urls.getFirst() instanceof String first) {
+            avatar = first;
+        }
+        return new AudienceViewer(
+            longVal(rank, "rank"), longVal(rank, "score"), userId,
+            strVal(user, "display_id"), strVal(user, "nickname"), strVal(user, "sec_uid"), avatar,
+            longVal(obj(user, "follow_info"), "follower_count"),
+            boolVal(user, "verified"), boolVal(user, "is_follower"), boolVal(user, "is_following"),
+            boolVal(user, "is_subscribe"));
     }
 
     @SuppressWarnings("unchecked")
@@ -138,12 +247,12 @@ public final class Api {
         if (!(flvObj instanceof Map<?, ?> flv)) return null;
         var f = (Map<String, Object>) flv;
         return new StreamUrls(
-            strOr(f, "FULL_HD1"), strOr(f, "HD1"), strOr(f, "SD1"),
-            strOr(f, "SD2"), strOr(f, "AUDIO")
+            strVal(f, "FULL_HD1"), strVal(f, "HD1"), strVal(f, "SD1"),
+            strVal(f, "SD2"), strVal(f, "AUDIO")
         );
     }
 
-    private static String httpGet(String url, String cookies, Duration timeout, String proxy)
+    private static HttpResult httpGet(String url, String cookies, Duration timeout, String proxy)
             throws IOException, InterruptedException {
         var builder = HttpRequest.newBuilder()
             .uri(URI.create(url))
@@ -170,7 +279,16 @@ public final class Api {
         if (status == 403 || status == 429) {
             throw new TikTokBlockedException(status);
         }
-        return resp.body();
+        return new HttpResult(status, resp.body());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Map<?, ?> m) {
+        return (Map<String, Object>) m;
+    }
+
+    private static Map<String, Object> obj(Map<String, Object> m, String key) {
+        return m.get(key) instanceof Map<?, ?> nested ? asMap(nested) : Map.of();
     }
 
     private static long longVal(Map<String, Object> m, String key) {
@@ -180,12 +298,11 @@ public final class Api {
         return 0;
     }
 
-    private static String strVal(Map<String, Object> m, String key) {
-        Object v = m.get(key);
-        return v != null ? v.toString() : "";
+    private static boolean boolVal(Map<String, Object> m, String key) {
+        return Boolean.TRUE.equals(m.get(key));
     }
 
-    private static String strOr(Map<String, Object> m, String key) {
+    private static String strVal(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v != null ? v.toString() : "";
     }

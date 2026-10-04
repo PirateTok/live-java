@@ -83,7 +83,8 @@ var client = new PirateTokClient("username_here")
     .cdnUS()                              // US CDN
     .cdn("webcast-ws.eu.tiktok.com")      // custom CDN host
     .timeout(Duration.ofSeconds(15))      // HTTP timeout
-    .maxRetries(10)                       // reconnect attempts
+    .heartbeatInterval(Duration.ofSeconds(10)) // WSS heartbeat (also sent as heartbeat_duration)
+    .maxRetries(10)                       // consecutive failed attempts (reset after a 30s healthy session)
     .staleTimeout(Duration.ofSeconds(90)) // no-data timeout
     .language("en")                       // override detected language
     .region("US")                         // override detected region
@@ -116,7 +117,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 ```java
 import com.piratetok.live.http.Api;
 
-// Check if user is live
+// Check if user is live — result.roomId(), result.anchorId() (streamer user ID)
 var result = Api.checkOnline("username_here", Duration.ofSeconds(10));
 
 // Fetch room metadata
@@ -127,15 +128,42 @@ var info = Api.fetchRoomInfo(result.roomId(), Duration.ofSeconds(10),
     "sessionid=abc; sid_tt=abc");
 ```
 
+## Viewers
+
+Every `ROOM_USER_SEQ` event carries the counters and the top-viewers box — no cookies needed:
+
+```java
+client.on(EventType.ROOM_USER_SEQ, e -> {
+    e.data().get("viewerCount"); // in the room right now (goes up and down)
+    e.data().get("totalUser");   // unique viewers over the whole stream (only grows)
+    for (var c : RoomUserSeq.topViewers(e.data())) { // usually top 3, sorted by rank
+        System.out.println(c.get("rank") + " " + ((Map<?, ?>) c.get("user")).get("nickname"));
+    }
+});
+```
+
+The full audience roster is a separate call. TikTok gates it behind a login, so session cookies are
+**required for this call only** — without them it throws `SessionRequiredException`:
+
+```java
+var room = PirateTokClient.checkOnline("username_here", Duration.ofSeconds(10));
+var audience = PirateTokClient.fetchRoomAudience(room.roomId(), room.anchorId(),
+    Duration.ofSeconds(10), "sessionid=abc; sid_tt=abc");
+// audience.total(), audience.anonymous(), audience.viewers() (rank, score, username, followerCount, ...)
+```
+
+Pass `null` as the anchor ID to resolve it from room info (one extra request).
+
 ## How it works
 
 1. Resolves username to room ID via TikTok JSON API
-2. Fetches a fresh `ttwid` cookie (unauthenticated GET)
+2. Fetches a `ttwid` cookie (unauthenticated GET, retried up to 8× — TikTok only sets it intermittently)
 3. Opens a direct WSS connection via `java.net.http.WebSocket`
-4. Sends protobuf heartbeats every 10s to keep alive
+4. Sends protobuf heartbeats every `heartbeatInterval` (10s) to keep alive
 5. Decodes protobuf event stream via hand-written codec
-6. Auto-reconnects on stale/dropped connections with fresh ttwid + rotated UA
-7. On `DEVICE_BLOCKED` handshake response, retries with 2s delay
+6. Auto-reconnects on stale/dropped connections, reusing ttwid + UA; both rotate only on `DEVICE_BLOCKED`
+   (2s delay) or a connection that died within 30s. A failed ttwid fetch is a failed attempt, not an abort.
+7. `connect()` blocks for the whole session; `connectAsync()` completes when the client stops
 
 ## Examples
 
@@ -148,6 +176,7 @@ java -cp target/classes:target/dependency/* GiftTracker <username>
 java -cp target/classes:target/dependency/* GiftStreak <username>
 java -cp target/classes:target/dependency/* LikeDebug <username>
 java -cp target/classes:target/dependency/* ProfileLookup <username>
+java -cp target/classes:target/dependency/* Audience <username> "sessionid=...; sid_tt=..."  # login required
 ```
 
 ## Integration tests
@@ -175,7 +204,8 @@ git clone https://github.com/PirateTok/live-testdata testdata
 mvn test
 ```
 
-Tests skip gracefully if testdata is not found. You can also set `PIRATETOK_TESTDATA` to point to a custom location.
+Replay tests fail if testdata is not found — they never pass on missing data. Set `PIRATETOK_TESTDATA` to point to a custom location.
+Offline unit tests (ttwid retry against a local responder, reconnect budget, top viewers, audience parsing) need no network.
 
 ## Scheduler tuning
 

@@ -202,12 +202,23 @@ public final class Schema {
         Map.entry(8, new FieldDef("shareCount", INT32))
     );
 
+    public static final Map<Integer, FieldDef> CONTRIBUTOR = Map.of(
+        1, new FieldDef("score", VARINT),
+        2, new FieldDef("user", MESSAGE, USER),
+        3, new FieldDef("rank", VARINT),
+        4, new FieldDef("delta", VARINT)
+    );
+
+    // viewerCount = in the room right now; totalUser = unique viewers over the whole stream
     public static final Map<Integer, FieldDef> ROOM_USER_SEQ = Map.of(
         1, new FieldDef("common", MESSAGE, COMMON),
-        3, new FieldDef("currentViewerCount", VARINT),
+        2, new FieldDef("ranksList", REPEATED_MESSAGE, CONTRIBUTOR),
+        3, new FieldDef("viewerCount", VARINT),
         4, new FieldDef("popStr", STRING),
+        5, new FieldDef("seatsList", REPEATED_MESSAGE, CONTRIBUTOR),
         6, new FieldDef("popularity", VARINT),
-        7, new FieldDef("uniqueViewerCount", INT32)
+        7, new FieldDef("totalUser", INT32),
+        8, new FieldDef("anonymous", VARINT)
     );
 
     public static final Map<Integer, FieldDef> CONTROL = Map.of(

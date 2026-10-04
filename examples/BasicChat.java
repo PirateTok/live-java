@@ -1,5 +1,6 @@
 import com.piratetok.live.PirateTokClient;
 import com.piratetok.live.events.EventType;
+import com.piratetok.live.events.RoomUserSeq;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -33,7 +34,15 @@ public class BasicChat {
             System.out.println("[join] " + user.getOrDefault("uniqueId", "?"));
         });
 
-        client.on(EventType.ROOM_USER_SEQ, e -> System.out.println("[viewers] " + e.data().get("uniqueViewerCount")));
+        // viewerCount = in the room right now; totalUser = unique viewers over the whole stream
+        client.on(EventType.ROOM_USER_SEQ, e -> {
+            System.out.println("[viewers] " + e.data().get("viewerCount") + " watching, "
+                + e.data().get("totalUser") + " total unique");
+            for (var c : RoomUserSeq.topViewers(e.data())) {
+                var user = (Map<?, ?>) c.get("user");
+                System.out.println("  #" + c.get("rank") + " " + user.get("nickname") + " (" + c.get("score") + ")");
+            }
+        });
         client.on(EventType.LIVE_ENDED, e -> System.out.println("[stream ended]"));
         client.on(EventType.DISCONNECTED, e -> System.out.println("disconnected"));
 

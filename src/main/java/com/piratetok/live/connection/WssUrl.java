@@ -4,6 +4,7 @@ import com.piratetok.live.http.UserAgent;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -20,7 +21,9 @@ public final class WssUrl {
     private static final String FLAG_TRUE = "1";
     private static final String UPDATE_VERSION_CODE = "2.0.0";
 
-    public static String build(String cdnHost, String roomId, String language, String region, boolean compress) {
+    /** {@code heartbeatInterval} feeds the {@code heartbeat_duration} param (ms). */
+    public static String build(String cdnHost, String roomId, String language, String region, boolean compress,
+            Duration heartbeatInterval) {
         String lastRtt = String.format("%.3f", LAST_RTT_MIN_MS + Math.random() * LAST_RTT_RANDOM_SPREAD_MS);
         String browserLang = language + "-" + region;
 
@@ -50,7 +53,7 @@ public final class WssUrl {
         params.put("identity", "audience");
         params.put("history_comment_count", HISTORY_COMMENT_COUNT);
         params.put("last_rtt", lastRtt);
-        params.put("heartbeat_duration", Long.toString(Wss.HEARTBEAT_INTERVAL_MS));
+        params.put("heartbeat_duration", Long.toString(heartbeatInterval.toMillis()));
         params.put("resp_content_type", "protobuf");
         params.put("did_rule", DID_RULE);
 

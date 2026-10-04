@@ -44,14 +44,7 @@ public final class Wss {
 
     private static final Logger log = Logger.getLogger(Wss.class.getName());
 
-    /**
-     * Client heartbeat period in ms; must match webcast {@code heartbeat_duration} (see {@link WssUrl}).
-     */
-    public static final long HEARTBEAT_INTERVAL_MS = 10_000L;
-
-    private static final long HEARTBEAT_MS = HEARTBEAT_INTERVAL_MS;
-
-    /** How often to re-check for stale connections (no inbound data). */
+    /** How often to re-check for stale connections (no inbound data); shortened to the heartbeat interval if smaller. */
     private static final long STALE_RECHECK_INTERVAL_MS = 5_000L;
 
     /** Env: {@value #ENV_WSS_SCHEDULER_THREADS} */
@@ -150,6 +143,7 @@ public final class Wss {
      * @param wssUrl         full WebSocket URL
      * @param ttwid          ttwid cookie value
      * @param roomId         room ID string
+     * @param heartbeatInterval heartbeat period; must match the URL's {@code heartbeat_duration}
      * @param staleTimeout   close if no data for this duration
      * @param userAgent      user agent string, or {@code null} for random
      * @param cookies        extra cookies to append alongside ttwid, or {@code null}
@@ -162,7 +156,8 @@ public final class Wss {
      * @return completes normally when the session ends; completes exceptionally on handshake or socket errors
      */
     public static CompletableFuture<Void> connectAsync(
-            String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
+            String wssUrl, String ttwid, String roomId,
+            java.time.Duration heartbeatInterval, java.time.Duration staleTimeout,
             String userAgent, String cookies, String acceptLanguage, String proxy,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
@@ -181,6 +176,8 @@ public final class Wss {
         var lastHeartbeatSent = new AtomicLong(0L);
         var maintenanceTaskRef = new AtomicReference<ScheduledFuture<?>>();
         long staleMs = staleTimeout.toMillis();
+        long heartbeatMs = heartbeatInterval.toMillis();
+        long tickMs = Math.max(1L, Math.min(STALE_RECHECK_INTERVAL_MS, heartbeatMs));
 
         WebSocket.Listener listener = new WebSocket.Listener() {
             @Override
@@ -199,11 +196,11 @@ public final class Wss {
                         sendCloseAsync(ws, WebSocket.NORMAL_CLOSURE, "stale");
                         return;
                     }
-                    if (now - lastHeartbeatSent.get() >= HEARTBEAT_MS) {
+                    if (now - lastHeartbeatSent.get() >= heartbeatMs) {
                         sendBinaryAsync(ws, Frames.buildHeartbeat(roomId), "heartbeat");
                         lastHeartbeatSent.set(now);
                     }
-                }, STALE_RECHECK_INTERVAL_MS, STALE_RECHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+                }, tickMs, tickMs, TimeUnit.MILLISECONDS);
                 maintenanceTaskRef.set(maintenance);
 
                 ws.request(1);
@@ -334,6 +331,7 @@ public final class Wss {
      * @param wssUrl         full WebSocket URL
      * @param ttwid          ttwid cookie value
      * @param roomId         room ID string
+     * @param heartbeatInterval heartbeat period; must match the URL's {@code heartbeat_duration}
      * @param staleTimeout   close if no data for this duration
      * @param userAgent      user agent string, or {@code null} for random
      * @param cookies        extra cookies to append alongside ttwid, or {@code null}
@@ -346,14 +344,15 @@ public final class Wss {
      * @throws DeviceBlockedException if handshake returns DEVICE_BLOCKED
      */
     public static void connect(
-            String wssUrl, String ttwid, String roomId, java.time.Duration staleTimeout,
+            String wssUrl, String ttwid, String roomId,
+            java.time.Duration heartbeatInterval, java.time.Duration staleTimeout,
             String userAgent, String cookies, String acceptLanguage, String proxy,
             Consumer<TikTokEvent> onEvent, Consumer<Exception> onError,
             AtomicBoolean stop,
             CompletableFuture<Void> sessionStop
     ) throws Exception {
         try {
-            connectAsync(wssUrl, ttwid, roomId, staleTimeout, userAgent, cookies, acceptLanguage,
+            connectAsync(wssUrl, ttwid, roomId, heartbeatInterval, staleTimeout, userAgent, cookies, acceptLanguage,
                     proxy, onEvent, onError, stop, sessionStop).join();
         } catch (CompletionException ce) {
             Throwable c = ce.getCause();
