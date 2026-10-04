@@ -6,7 +6,7 @@
 
     <groupId>com.piratetok</groupId>
     <artifactId>live</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <packaging>jar</packaging>
     <name>PirateTok Live (Java)</name>
     <description>TikTok Live client for Java — real-time events; uses Jackson for JSON parsing.</description>
@@ -81,6 +81,9 @@
                 <configuration>
                     <!-- JUnit 5 -->
                     <useModulePath>false</useModulePath>
+                    <!-- the JDK disables Basic proxy auth for HTTPS tunnels by default; apps that want
+                         user:pass@ proxies opt in the same way (see ProxyConfig) -->
+                    <argLine>-Djdk.http.auth.tunneling.disabledSchemes=</argLine>
                 </configuration>
             </plugin>
         </plugins>

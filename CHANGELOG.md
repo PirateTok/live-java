@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1
+
+Fixes (found by new offline fake-proxy tests):
+- Proxy `user:pass@` credentials were dropped everywhere (ttwid, API, SIGI, WSS); now passed via an
+  `Authenticator` (HTTPS tunnels need `-Djdk.http.auth.tunneling.disabledSchemes=`, a JDK default).
+- `socks5://` proxies were silently used as HTTP proxies; java.net.http has no SOCKS support, so they now fail
+  with `IllegalArgumentException`. Proxy URLs without a port no longer resolve to port -1 (80/443 defaults).
+- One `ProxyConfig` helper for all four transports.
+
+Tests: fake CONNECT proxy (ttwid, API, WSS, credentials; SOCKS rejection), fake webcast WS server
+(heartbeat, enter_room, ack log_id + binary internal_ext, UA / cookies / Accept-Language / locale / compress /
+heartbeat_duration on the wire), client-level reconnect loop (reconnecting×N → disconnected once, rotation, stop).
+
 ## 0.2.0
 
 Breaking:

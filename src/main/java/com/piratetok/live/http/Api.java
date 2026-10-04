@@ -9,8 +9,6 @@ import com.piratetok.live.Errors.TikTokBlockedException;
 import com.piratetok.live.Errors.UserNotFoundException;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ProxySelector;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -265,10 +263,7 @@ public final class Api {
         }
         HttpResponse<String> resp;
         if (proxy != null && !proxy.isEmpty()) {
-            URI proxyUri = URI.create(proxy);
-            try (var client = HttpClient.newBuilder()
-                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
-                    .build()) {
+            try (var client = ProxyConfig.apply(HttpClient.newBuilder(), proxy).build()) {
                 resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             }
         } else {

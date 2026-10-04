@@ -4,12 +4,11 @@ import com.piratetok.live.Errors.DeviceBlockedException;
 import com.piratetok.live.Limits;
 import com.piratetok.live.events.Router;
 import com.piratetok.live.events.TikTokEvent;
+import com.piratetok.live.http.ProxyConfig;
 import com.piratetok.live.http.UserAgent;
 import com.piratetok.live.proto.Proto;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
@@ -257,11 +256,7 @@ public final class Wss {
 
         HttpClient wsClient;
         if (proxy != null && !proxy.isEmpty()) {
-            URI proxyUri = URI.create(proxy);
-            wsClient = HttpClient.newBuilder()
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
-                    .build();
+            wsClient = ProxyConfig.apply(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1), proxy).build();
         } else {
             wsClient = HTTP_CLIENT;
         }

@@ -90,12 +90,16 @@ var client = new PirateTokClient("username_here")
     .region("US")                         // override detected region
     .userAgent("custom UA")               // override random UA
     .cookies("sessionid=abc; sid_tt=abc") // session cookies (18+ room info only)
-    .proxy("http://127.0.0.1:8080")      // HTTP/HTTPS/SOCKS5 proxy for all traffic
+    .proxy("http://user:pw@127.0.0.1:8080") // HTTP CONNECT proxy for all traffic (no SOCKS: java.net.http limit)
     .compress(false);                     // disable gzip compression for WSS payloads (trades bandwidth for CPU)
 
 // Stop a running connection (from another thread)
 client.disconnect();
 ```
+
+Proxy notes: `java.net.http` only speaks HTTP CONNECT proxies, so `socks5://` URLs are rejected with an
+`IllegalArgumentException`. The JDK also disables Basic proxy auth for HTTPS tunnels by default — to use
+`user:pass@` credentials, start the JVM with `-Djdk.http.auth.tunneling.disabledSchemes=`.
 
 ## Async (non-blocking)
 

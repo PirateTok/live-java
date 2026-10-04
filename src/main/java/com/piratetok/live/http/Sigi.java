@@ -6,8 +6,6 @@ import com.piratetok.live.Errors.ProfilePrivateException;
 import com.piratetok.live.Errors.ProfileScrapeException;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -48,10 +46,7 @@ public final class Sigi {
 
         String html;
         if (proxy != null && !proxy.isEmpty()) {
-            URI proxyUri = URI.create(proxy);
-            try (var client = HttpClient.newBuilder()
-                    .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
-                    .build()) {
+            try (var client = ProxyConfig.apply(HttpClient.newBuilder(), proxy).build()) {
                 html = client.send(req, HttpResponse.BodyHandlers.ofString()).body();
             }
         } else {

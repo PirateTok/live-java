@@ -1,12 +1,11 @@
 package com.piratetok.live.auth;
 
+import com.piratetok.live.http.ProxyConfig;
 import com.piratetok.live.http.SharedHttpClient;
 import com.piratetok.live.http.UserAgent;
 
 import java.io.IOException;
 import java.net.HttpCookie;
-import java.net.InetSocketAddress;
-import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -54,10 +53,7 @@ public final class Ttwid {
         if (proxy == null || proxy.isEmpty()) {
             return fetch(SharedHttpClient.instance(), TIKTOK_URL, timeout, ua, FETCH_ATTEMPTS, RETRY_DELAY);
         }
-        URI proxyUri = URI.create(proxy);
-        try (var client = HttpClient.newBuilder()
-                .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort())))
-                .build()) {
+        try (var client = ProxyConfig.apply(HttpClient.newBuilder(), proxy).build()) {
             return fetch(client, TIKTOK_URL, timeout, ua, FETCH_ATTEMPTS, RETRY_DELAY);
         }
     }

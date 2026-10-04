@@ -1,6 +1,8 @@
 package com.piratetok.live;
 
 import com.piratetok.live.Errors.DeviceBlockedException;
+import com.piratetok.live.ReconnectLoop.Outcome;
+import com.piratetok.live.ReconnectLoop.Session;
 import com.piratetok.live.auth.Ttwid;
 import com.piratetok.live.connection.Wss;
 import com.piratetok.live.connection.WssUrl;
@@ -106,11 +108,6 @@ public final class PirateTokClient {
         }
     }
 
-    /** ttwid + UA pair, reused across reconnects until rotated. */
-    private record Session(String ttwid, String ua) {}
-
-    private record Outcome(ReconnectBudget.Exit exit, Duration lived, Session session) {}
-
     /**
      * Connect synchronously (blocks the calling thread until disconnect or retry budget exhausted).
      */
@@ -164,49 +161,15 @@ public final class PirateTokClient {
                 .thenCompose(room -> {
                     stop.set(false);
                     emit(new TikTokEvent(EventType.CONNECTED, Map.of("roomId", room.roomId()), room.roomId()));
-                    return sessionLoop(room, new ReconnectBudget(maxRetries), null, executor);
+                    var deps = new ReconnectLoop.Deps(
+                        this::freshSession,
+                        s -> runSession(room, s),
+                        d -> CompletableFuture.delayedExecutor(d.toMillis(), TimeUnit.MILLISECONDS, executor),
+                        this::emit,
+                        stop::get,
+                        executor);
+                    return ReconnectLoop.run(room.roomId(), maxRetries, deps).thenApply(v -> room.roomId());
                 });
-    }
-
-    /**
-     * One attempt per call. ttwid + UA are fetched once and reused; they rotate only on DEVICE_BLOCKED,
-     * a ttwid failure, or a connection that died young. A ttwid failure is a failed attempt, not an abort.
-     */
-    private CompletableFuture<String> sessionLoop(
-            RoomIdResult room, ReconnectBudget budget, Session held, Executor executor) {
-        if (stop.get()) {
-            return finish(room);
-        }
-        var sessionStop = new CompletableFuture<Void>();
-        activeSessionStop.set(sessionStop);
-        if (stop.get()) {
-            return finish(room);
-        }
-
-        CompletableFuture<Session> session = held != null
-                ? CompletableFuture.completedFuture(held)
-                : CompletableFuture.supplyAsync(this::freshSession, executor);
-
-        return session.thenCompose(s -> runSession(room, s, sessionStop)).thenCompose(outcome -> {
-            if (stop.get()) {
-                return finish(room);
-            }
-            var judgement = ReconnectBudget.judge(outcome.exit(), outcome.lived());
-            Session next = judgement.rotate() ? null : outcome.session();
-            var verdict = budget.record(judgement.end());
-            if (verdict.giveUp()) {
-                log.info("max retries (" + maxRetries + ") exceeded at attempt " + verdict.attempt());
-                return finish(room);
-            }
-            long delaySecs = verdict.delay().toSeconds();
-            emit(new TikTokEvent(EventType.RECONNECTING,
-                Map.of("attempt", verdict.attempt(), "maxRetries", maxRetries, "delaySecs", delaySecs),
-                room.roomId()));
-            log.info("reconnecting in " + delaySecs + "s (attempt " + verdict.attempt() + "/" + maxRetries + ")");
-            var delayed = CompletableFuture.delayedExecutor(verdict.delay().toMillis(), TimeUnit.MILLISECONDS, executor);
-            return CompletableFuture.runAsync(() -> {}, delayed)
-                    .thenCompose(ignored -> sessionLoop(room, budget, next, executor));
-        });
     }
 
     /** Returns {@code null} when the ttwid fetch failed. */
@@ -224,10 +187,9 @@ public final class PirateTokClient {
         }
     }
 
-    private CompletableFuture<Outcome> runSession(RoomIdResult room, Session s, CompletableFuture<Void> sessionStop) {
-        if (s == null) {
-            return CompletableFuture.completedFuture(new Outcome(ReconnectBudget.Exit.NO_TTWID, Duration.ZERO, null));
-        }
+    private CompletableFuture<Outcome> runSession(RoomIdResult room, Session s) {
+        var sessionStop = new CompletableFuture<Void>();
+        activeSessionStop.set(sessionStop);
         if (stop.get()) {
             return CompletableFuture.completedFuture(new Outcome(ReconnectBudget.Exit.CLOSED, Duration.ZERO, s));
         }
@@ -255,11 +217,6 @@ public final class PirateTokClient {
         }
         log.warning("websocket error: " + c);
         return ReconnectBudget.Exit.ERRORED;
-    }
-
-    private CompletableFuture<String> finish(RoomIdResult room) {
-        emit(new TikTokEvent(EventType.DISCONNECTED, null, room.roomId()));
-        return CompletableFuture.completedFuture(room.roomId());
     }
 
     public void disconnect() {
