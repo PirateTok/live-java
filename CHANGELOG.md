@@ -12,6 +12,7 @@
 - `RoomIdResult.anchorId()`; `RoomInfo.rawJson()`; check_online maps empty / non-JSON responses to `TikTokBlockedException`.
 - RoomUserSeq decodes `ranksList`, `seatsList`, `anonymous`; fields renamed `viewerCount` / `totalUser`.
   New `RoomUserSeq.topViewers(data)`.
+- Gift helpers `Gift.isComboGift(data)`, `Gift.isStreakOver(data)`, `Gift.diamondTotal(data)`.
 - `fetchRoomAudience` (full viewer roster, login-gated) + `SessionRequiredException` / `InvalidResponseException`; `Audience` example.
 - `unknown` events carry the raw `payload` bytes; `WebcastRoomVerifyMessage` routed.
 - Replay tests fail on missing testdata instead of passing silently; `make build` delegates to Maven.

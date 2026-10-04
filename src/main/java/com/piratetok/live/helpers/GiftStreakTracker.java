@@ -1,5 +1,7 @@
 package com.piratetok.live.helpers;
 
+import com.piratetok.live.events.Gift;
+
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -44,10 +46,9 @@ public final class GiftStreakTracker {
 
         @SuppressWarnings("unchecked")
         var giftStruct = (Map<String, Object>) data.getOrDefault("gift", Map.of());
-        int giftType = intVal(giftStruct, "type");
         int diamondPer = intVal(giftStruct, "diamondCount");
 
-        boolean isCombo = giftType == 1;
+        boolean isCombo = Gift.isComboGift(data);
         boolean isFinal = repeatEnd == 1;
 
         if (!isCombo) {
